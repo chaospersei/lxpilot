@@ -11,6 +11,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/LxPilot" "$APP/Contents/MacOS/LxPilot"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"   # пересборка иконки: swift Tools/make-icon.swift
 
 # Ad-hoc подпись: достаточно для запуска на своём Mac.
 codesign --force --sign - "$APP"

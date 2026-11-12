@@ -41,6 +41,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // When started as a bare SwiftPM binary (not from the .app bundle) the process needs this to get a Dock icon and focus.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        if Bundle.main.bundleURL.pathExtension != "app" {
+            // `swift run`: no bundle, so pick the icon up from the source tree.
+            let icon = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Resources/AppIcon.icns")
+            if let image = NSImage(contentsOf: icon) { NSApp.applicationIconImage = image }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
