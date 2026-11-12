@@ -150,7 +150,7 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
     ctx.restoreGState()
 
     fillLinear(ctx, path, [
-        (rgba(0xFFFFFF, 0.70), 0), (rgba(0xFFFFFF, 0.28), 0.45), (rgba(0xFFFFFF, 0.06), 1),
+        (rgba(0xFFFFFF, 0.42), 0), (rgba(0xFFFFFF, 0.14), 0.45), (rgba(0xFFFFFF, 0.0), 1),
     ], from: lightFrom, to: lightTo)
 
     // Far-side darkening (refraction): the path shifted towards the light, drawn as a wide stroke, clipped inside.
@@ -171,7 +171,7 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
         l.addPath(path); l.clip()
         l.translateBy(x: 5, y: 6)
         l.addPath(path)
-        l.setStrokeColor(rgba(0xFFFFFF, 0.55))
+        l.setStrokeColor(rgba(0xFFFFFF, 0.45))
         l.setLineWidth(18)
         l.strokePath()
     }
@@ -188,8 +188,8 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
     // Thin violet contour outside the rim: keeps the shape legible on a light Dock or menu bar.
     ctx.saveGState()
     ctx.addPath(path)
-    ctx.setStrokeColor(rgba(0x4A3C86, 0.55))
-    ctx.setLineWidth(2.2)
+    ctx.setStrokeColor(rgba(0x33237A, 0.7))
+    ctx.setLineWidth(2.4)
     ctx.strokePath()
     ctx.restoreGState()
 
@@ -203,7 +203,7 @@ let ctx = makeContext()
 // Flame glow behind everything else.
 let glow = layer(blur: 46) { l in
     rocketSpace(l)
-    l.addPath(ellipse(0, 340, 110, 170)); l.setFillColor(rgba(0xB79CFF, 0.85)); l.fillPath()
+    l.addPath(ellipse(0, 340, 120, 180)); l.setFillColor(rgba(0x9B78FF, 0.95)); l.fillPath()
 }
 draw(glow, in: ctx)
 
@@ -212,7 +212,7 @@ rocketSpace(ctx)
 
 // Flame: hot white core fading to violet.
 fillLinear(ctx, flame, [
-    (rgba(0xFFFFFF, 1.0), 0), (rgba(0xE3D6FF, 0.95), 0.3), (rgba(0xA184F2, 0.75), 0.7), (rgba(0x7B5BE0, 0.0), 1),
+    (rgba(0xFFFFFF, 1.0), 0), (rgba(0xD9C8FF, 1.0), 0.25), (rgba(0x8F67FF, 0.9), 0.65), (rgba(0x6E45F0, 0.0), 1),
 ], from: P(0, 226), to: P(0, 470))
 let core = CGMutablePath()
 core.move(to: P(-24, 230)); core.addCurve(to: P(0, 390), control1: P(-30, 300), control2: P(-10, 360))
@@ -221,10 +221,10 @@ fillLinear(ctx, core, [(rgba(0xFFFFFF, 1), 0), (rgba(0xFFFFFF, 0), 1)], from: P(
 
 // Fins, nozzle, body, nose, window. Light comes from the upper left.
 let lightA = P(-120, -200), lightB = P(140, 220)
-glass(ctx, fin(mirror: false), tint: rgba(0x8F7BDC, 0.88), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, fin(mirror: true), tint: rgba(0x8F7BDC, 0.88), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, nozzle, tint: rgba(0x6A58B8, 0.92), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, body, tint: rgba(0xAE9BF2, 0.86), lightFrom: lightA, lightTo: lightB)
+glass(ctx, fin(mirror: false), tint: rgba(0x6A4FDC, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, fin(mirror: true), tint: rgba(0x6A4FDC, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, nozzle, tint: rgba(0x4C3AA8, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, body, tint: rgba(0x8B6CF5, 0.97), lightFrom: lightA, lightTo: lightB)
 
 // Refraction band: a soft diagonal streak of light crossing the body.
 let band = layer(blur: 14) { l in
@@ -232,7 +232,7 @@ let band = layer(blur: 14) { l in
     l.addPath(body); l.clip()
     let s = CGMutablePath()
     s.move(to: P(-92, 60)); s.addLine(to: P(92, -60)); s.addLine(to: P(92, 10)); s.addLine(to: P(-92, 130)); s.closeSubpath()
-    l.addPath(s); l.setFillColor(rgba(0xFFFFFF, 0.28)); l.fillPath()
+    l.addPath(s); l.setFillColor(rgba(0xFFFFFF, 0.22)); l.fillPath()
 }
 draw(band, in: ctx)
 
@@ -241,11 +241,11 @@ let nose = CGMutablePath()
 nose.addRect(CGRect(x: -120, y: -300, width: 240, height: 130))
 ctx.saveGState()
 ctx.addPath(body); ctx.clip()
-fillLinear(ctx, nose, [(rgba(0x7A58F5, 1.0), 0), (rgba(0xA78BFF, 0.5), 1)], from: P(0, -262), to: P(0, -170))
+fillLinear(ctx, nose, [(rgba(0x5B33F2, 1.0), 0), (rgba(0x8D6CFF, 0.55), 1)], from: P(0, -262), to: P(0, -170))
 ctx.restoreGState()
 
 // Window: dark glass with a bright arc.
-glass(ctx, window, tint: rgba(0x34295C, 0.95), lightFrom: P(-40, -100), lightTo: P(40, -16), rim: 4)
+glass(ctx, window, tint: rgba(0x241A52, 0.97), lightFrom: P(-40, -100), lightTo: P(40, -16), rim: 4)
 fillRadial(ctx, window, [(rgba(0xA68EFF, 0.65), 0), (rgba(0xA68EFF, 0), 1)], center: P(12, -44), radius: 40)
 
 // Specular highlight along the body's near edge.
