@@ -25,11 +25,14 @@ struct LxPilotApp: App {
                 Image(systemName: state.isRunning ? "shield.lefthalf.filled" : "shield")
             case .speed, .speedGraph:
                 // Redrawn once a second together with the speed samples.
-                Image(nsImage: MenuBarRenderer.image(
-                    up: state.upSpeed,
-                    down: state.downSpeed,
-                    history: state.speedHistory,
-                    showGraph: state.settings.menuBarStyle == .speedGraph))
+                HStack(spacing: 4) {
+                    Image(nsImage: AppIcon.tray)
+                    Image(nsImage: MenuBarRenderer.image(
+                        up: state.upSpeed,
+                        down: state.downSpeed,
+                        history: state.speedHistory,
+                        showGraph: state.settings.menuBarStyle == .speedGraph))
+                }
             }
         }
     }
@@ -41,12 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // When started as a bare SwiftPM binary (not from the .app bundle) the process needs this to get a Dock icon and focus.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        if Bundle.main.bundleURL.pathExtension != "app" {
-            // `swift run`: no bundle, so pick the icon up from the source tree.
-            let icon = URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent("Resources/AppIcon.icns")
-            if let image = NSImage(contentsOf: icon) { NSApp.applicationIconImage = image }
+        if Bundle.main.bundleURL.pathExtension != "app", let icon = AppIcon.full {
+            NSApp.applicationIconImage = icon   // `swift run`: no bundle to take the Dock icon from
         }
     }
 

@@ -1,16 +1,45 @@
 import AppKit
 
-/// Draws the menu bar item: two lines of speed (upload on top, download below) and,
-/// optionally, two rows of mini bar graphs with the recent history.
+/// The app icon as an image: from the bundle, or from the source tree when run as a bare
+/// SwiftPM binary (`swift run`).
+enum AppIcon {
+    static let full: NSImage? = {
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"), let image = NSImage(contentsOf: url) {
+            return image
+        }
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/AppIcon.icns")
+        return NSImage(contentsOf: source)
+    }()
+
+    /// Menu bar version, 18 pt: the tile without the canvas margin of the icon grid. Not a template,
+    /// so it keeps its colours next to the tinted speed image.
+    static let tray: NSImage = {
+        let side: CGFloat = 18
+        guard let full else {
+            return NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil) ?? NSImage(size: NSSize(width: side, height: side))
+        }
+        let margin = full.size.width * 80 / 1024
+        let crop = NSRect(x: margin, y: margin, width: full.size.width - margin * 2, height: full.size.height - margin * 2)
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            full.draw(in: rect, from: crop, operation: .sourceOver, fraction: 1)
+            return true
+        }
+    }()
+}
+
+/// Draws the speed part of the menu bar item: two lines of speed (upload on top, download below)
+/// and, optionally, two rows of mini bar graphs with the recent history.
 ///
-/// SwiftUI's MenuBarExtra only renders a plain Image/Text as its label, so the whole
-/// item is drawn into one template NSImage — macOS then tints it for light/dark menu bars
-/// and for the highlighted state.
+/// It is one template NSImage — macOS then tints it for light/dark menu bars and for the
+/// highlighted state; the coloured app icon sits next to it as a separate view.
 enum MenuBarRenderer {
     private static let height: CGFloat = 22
     private static let textWidth: CGFloat = 54
     private static let rowHeight: CGFloat = 8
-    private static let barCount = 12
+    /// 7 bars × (3 + 1) pt = 27 pt wide; was 12 bars / 47 pt, cut ~1.7× to leave room for the icon.
+    private static let barCount = 7
     private static let barWidth: CGFloat = 3
     private static let barGap: CGFloat = 1
     /// Scale floor: below this the bars stay low instead of idle noise filling the graph.
