@@ -25,14 +25,11 @@ struct LxPilotApp: App {
                 Image(systemName: state.isRunning ? "shield.lefthalf.filled" : "shield")
             case .speed, .speedGraph:
                 // Redrawn once a second together with the speed samples.
-                HStack(spacing: 4) {
-                    Image(nsImage: AppIcon.tray)
-                    Image(nsImage: MenuBarRenderer.image(
-                        up: state.upSpeed,
-                        down: state.downSpeed,
-                        history: state.speedHistory,
-                        showGraph: state.settings.menuBarStyle == .speedGraph))
-                }
+                Image(nsImage: MenuBarRenderer.image(
+                    up: state.upSpeed,
+                    down: state.downSpeed,
+                    history: state.speedHistory,
+                    showGraph: state.settings.menuBarStyle == .speedGraph))
             }
         }
     }
