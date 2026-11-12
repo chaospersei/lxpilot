@@ -125,6 +125,7 @@ struct RootView: View {
         switch state.page {
         case .dashboard: DashboardView()
         case .proxies: ProxiesView()
+        case .apps: AppsView()
         case .profiles: ProfilesView()
         case .connections: ConnectionsView()
         case .logs: LogsView()

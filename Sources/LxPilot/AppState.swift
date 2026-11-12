@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppState: ObservableObject {
@@ -203,6 +204,66 @@ final class AppState: ObservableObject {
             throw AppError("Не удалось прочитать профиль «\(profile.name)» — файл отсутствует или содержит некорректный JSON.")
         }
         return try ConfigBuilder.serialize(ConfigBuilder.overlay(object, settings: settings))
+    }
+
+    // MARK: - Per-app routing
+
+    /// Replaces the rule list and pushes it to the running core (hot apply with lxd, restart with classic).
+    func setAppRules(_ rules: [AppRule]) async {
+        guard settings.appRules != rules else { return }
+        settings.appRules = rules
+        if isRunning { await reload() }
+    }
+
+    func addAppRule(url: URL, mode: AppRouteMode = .proxy) async {
+        let path = url.standardizedFileURL.path
+        guard !settings.appRules.contains(where: { $0.path == path }) else {
+            alert = "«\(url.deletingPathExtension().lastPathComponent)» уже есть в списке."
+            return
+        }
+        let bundle = Bundle(url: url)
+        let name = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? url.deletingPathExtension().lastPathComponent
+        let rule = AppRule(name: name, path: path, bundleID: bundle?.bundleIdentifier, mode: mode)
+        await setAppRules(settings.appRules + [rule])
+    }
+
+    func updateAppRule(_ rule: AppRule) async {
+        guard let index = settings.appRules.firstIndex(where: { $0.id == rule.id }) else { return }
+        var rules = settings.appRules
+        rules[index] = rule
+        await setAppRules(rules)
+    }
+
+    func removeAppRule(_ rule: AppRule) async {
+        await setAppRules(settings.appRules.filter { $0.id != rule.id })
+    }
+
+    /// Applications with a Dock presence; the ones already listed are skipped.
+    var runningAppCandidates: [(name: String, url: URL)] {
+        let listed = Set(settings.appRules.map(\.path))
+        var seen: Set<String> = []
+        return NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .compactMap { app -> (name: String, url: URL)? in
+                guard let url = app.bundleURL, let name = app.localizedName else { return nil }
+                let path = url.standardizedFileURL.path
+                guard !listed.contains(path), seen.insert(path).inserted, path != Bundle.main.bundleURL.path else { return nil }
+                return (name, url)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func chooseApp() async {
+        let panel = NSOpenPanel()
+        panel.title = "Выберите приложение"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.applicationBundle, .unixExecutable]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { await addAppRule(url: url) }
     }
 
     // MARK: - Dashboard switches

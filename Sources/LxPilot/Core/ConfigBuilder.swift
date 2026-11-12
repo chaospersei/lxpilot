@@ -78,6 +78,8 @@ enum ConfigBuilder {
         experimental["cache_file"] = cache
         config["experimental"] = experimental
 
+        config = withAppRules(config, rules: settings.appRules.filter { $0.enabled })
+
         guard settings.manageInbounds else { return config }
 
         let existing = config["inbounds"] as? [JSON] ?? []
@@ -114,6 +116,79 @@ enum ConfigBuilder {
             config["route"] = route
         }
         config["inbounds"] = inbounds
+        return config
+    }
+}
+
+// MARK: - Per-app routing
+
+extension ConfigBuilder {
+    /// Tag of the outbound that stands for "the proxy": the profile's `route.final` when it is a real
+    /// node or a group, otherwise the first selector, otherwise the first node.
+    static func proxyOutboundTag(_ config: JSON) -> String? {
+        let outbounds = config["outbounds"] as? [JSON] ?? []
+        let nonProxy: Set<String> = ["direct", "block", "dns"]
+        func type(of tag: String) -> String? {
+            outbounds.first(where: { ($0["tag"] as? String) == tag })?["type"] as? String
+        }
+        if let final = (config["route"] as? JSON)?["final"] as? String, let t = type(of: final), !nonProxy.contains(t) {
+            return final
+        }
+        if let selector = outbounds.first(where: { ($0["type"] as? String) == "selector" }) {
+            return selector["tag"] as? String
+        }
+        return outbounds.first(where: { !nonProxy.contains(($0["type"] as? String) ?? "") })?["tag"] as? String
+    }
+
+    static func processPattern(for rule: AppRule) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: rule.path)
+        return rule.isBundle ? "^\(escaped)/" : "^\(escaped)$"
+    }
+
+    /// Inserts `process_path_regex` rules ahead of the first routing rule, after the leading
+    /// `sniff` / `hijack-dns` actions, so DNS interception keeps working and the forced route wins
+    /// over the profile's rules and over the Global/Direct clash modes.
+    static func withAppRules(_ config: JSON, rules: [AppRule]) -> JSON {
+        guard !rules.isEmpty else { return config }
+        var config = config
+        var outbounds = config["outbounds"] as? [JSON] ?? []
+        var route = config["route"] as? JSON ?? [:]
+        var routeRules = route["rules"] as? [JSON] ?? []
+
+        var directTag = outbounds.first(where: { ($0["type"] as? String) == "direct" })?["tag"] as? String
+        if directTag == nil, rules.contains(where: { $0.mode == .direct }) {
+            let direct: JSON = ["type": "direct", "tag": "direct"]
+            outbounds.append(direct)
+            directTag = "direct"
+        }
+        let proxyTag = proxyOutboundTag(config)
+
+        var inserted: [JSON] = []
+        for mode in AppRouteMode.allCases {
+            let patterns = rules.filter { $0.mode == mode }.map(processPattern(for:))
+            guard !patterns.isEmpty, let target = (mode == .proxy ? proxyTag : directTag) else { continue }
+            let rule: JSON = ["process_path_regex": patterns, "outbound": target]
+            inserted.append(rule)
+        }
+        guard !inserted.isEmpty else { return config }
+
+        let terminating: Set<String> = ["route", "reject"]
+        let position = routeRules.firstIndex(where: {
+            $0["outbound"] != nil || terminating.contains(($0["action"] as? String) ?? "")
+        }) ?? routeRules.count
+        // A profile may hijack DNS only after some routing rules; keep that interception for the
+        // forced apps too, otherwise their DNS would follow the forced route instead of the resolver.
+        let hijacksLater = routeRules[position...].contains { ($0["action"] as? String) == "hijack-dns" }
+        let hijacksEarlier = routeRules[..<position].contains { ($0["action"] as? String) == "hijack-dns" }
+        if hijacksLater, !hijacksEarlier {
+            let hijack: JSON = ["protocol": "dns", "action": "hijack-dns"]
+            inserted.insert(hijack, at: 0)
+        }
+        routeRules.insert(contentsOf: inserted, at: position)
+
+        route["rules"] = routeRules
+        config["route"] = route
+        config["outbounds"] = outbounds
         return config
     }
 }

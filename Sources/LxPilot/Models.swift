@@ -58,6 +58,31 @@ enum AccentChoice: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Forced route for one application's traffic.
+enum AppRouteMode: String, Codable, CaseIterable, Identifiable {
+    case proxy, direct
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .proxy: return "Через прокси"
+        case .direct: return "Напрямую"
+        }
+    }
+}
+
+/// An application whose connections are routed by a rule placed ahead of the profile's own rules.
+struct AppRule: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    /// `/Applications/X.app` — every process inside the bundle matches — or a bare executable path.
+    var path: String
+    var bundleID: String?
+    var mode: AppRouteMode = .proxy
+    var enabled = true
+
+    var isBundle: Bool { path.hasSuffix(".app") }
+}
+
 struct AppSettings: Codable, Equatable {
     var engine: Engine = .lxd
     var tunEnabled = false
@@ -78,6 +103,7 @@ struct AppSettings: Codable, Equatable {
     var appearance: AppearanceMode = .system
     var accent: AccentChoice = .indigo
     var menuBarStyle: MenuBarStyle = .speedGraph
+    var appRules: [AppRule] = []
 
     init() {}
 
@@ -104,6 +130,7 @@ struct AppSettings: Codable, Equatable {
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? d.appearance
         accent = try c.decodeIfPresent(AccentChoice.self, forKey: .accent) ?? d.accent
         menuBarStyle = try c.decodeIfPresent(MenuBarStyle.self, forKey: .menuBarStyle) ?? d.menuBarStyle
+        appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
     }
 
     static func randomSecret() -> String {
@@ -137,12 +164,13 @@ enum CoreState: Equatable {
 }
 
 enum Page: String, CaseIterable, Identifiable {
-    case dashboard, proxies, profiles, connections, logs, tools
+    case dashboard, proxies, apps, profiles, connections, logs, tools
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: return "Панель"
         case .proxies: return "Прокси"
+        case .apps: return "Приложения"
         case .profiles: return "Профили"
         case .connections: return "Соединения"
         case .logs: return "Логи"
@@ -153,6 +181,7 @@ enum Page: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "square.grid.2x2"
         case .proxies: return "point.3.connected.trianglepath.dotted"
+        case .apps: return "app.badge.checkmark"
         case .profiles: return "folder"
         case .connections: return "arrow.left.arrow.right"
         case .logs: return "doc.text"
