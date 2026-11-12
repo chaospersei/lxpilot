@@ -42,8 +42,9 @@ enum AppIcon {
 /// current, which makes them dark on a light menu bar and light on a dark one.
 enum MenuBarRenderer {
     private static let height: CGFloat = 22
-    private static let iconGap: CGFloat = 4
-    private static let textWidth: CGFloat = 54
+    private static let iconGap: CGFloat = 3
+    /// Fits the widest value `compactSpeed` produces ("88.8 MB/s" ≈ 47 pt at 9 pt semibold).
+    private static let textWidth: CGFloat = 48
     private static let rowHeight: CGFloat = 8
     /// 7 bars × (3 + 1) pt = 27 pt wide; was 12 bars / 47 pt, cut ~1.7× to leave room for the icon.
     private static let barCount = 7
@@ -105,12 +106,13 @@ enum MenuBarRenderer {
         }
     }
 
-    /// Short fixed-width form for the menu bar: "0 KB/s", "742 KB/s", "12.4 MB/s".
+    /// Short fixed-width form for the menu bar: "0 KB/s", "742 KB/s", "12.4 MB/s", "125 MB/s".
     static func compactSpeed(_ bytesPerSecond: Double) -> String {
         let kb = max(bytesPerSecond, 0) / 1024
         if kb < 1000 { return "\(Int(kb.rounded())) KB/s" }
         let mb = kb / 1024
-        if mb < 1000 { return String(format: "%.1f", mb) + " MB/s" }
+        if mb < 100 { return String(format: "%.1f", mb) + " MB/s" }
+        if mb < 1000 { return String(format: "%.0f", mb) + " MB/s" }
         return String(format: "%.2f", mb / 1024) + " GB/s"
     }
 }
