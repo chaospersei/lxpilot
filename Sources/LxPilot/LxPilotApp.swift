@@ -37,7 +37,16 @@ struct LxPilotApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var termSource: DispatchSourceSignal?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // `kill <pid>` would skip applicationWillTerminate and leave the core and the system proxy behind.
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { NSApp.terminate(nil) }
+        source.resume()
+        termSource = source
+
         // When started as a bare SwiftPM binary (not from the .app bundle) the process needs this to get a Dock icon and focus.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
