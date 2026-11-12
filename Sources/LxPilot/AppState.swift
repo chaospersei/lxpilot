@@ -387,11 +387,14 @@ final class AppState: ObservableObject {
         let url = settings.testURL
         do {
             let result = try await clash.groupDelay(group.name, url: url)
+            // Verified on 1.14.4-lx.33: a `urltest` group answers `{}` even though it did test its members,
+            // so an empty map must not be read as "everyone failed".
+            guard !result.isEmpty else { throw AppError("empty group delay") }
             var updated = delays
             for member in group.all { updated[member] = result[member] ?? 0 }
             delays = updated
         } catch {
-            // Older cores have no /group endpoint: fall back to testing members one by one.
+            // Older cores have no /group endpoint and urltest groups return nothing: test members one by one.
             let api = clash
             let members = group.all
             let results = await withTaskGroup(of: (String, Int).self, returning: [String: Int].self) { tasks in

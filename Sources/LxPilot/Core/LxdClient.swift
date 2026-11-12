@@ -38,10 +38,11 @@ struct LxdClient {
         guard code == 200, let object = (try? JSONSerialization.jsonObject(with: data)) as? JSON else {
             throw AppError("lxd /admin/status: HTTP \(code)")
         }
-        // The exact key of the state field is not part of the documented contract, so look it up tolerantly.
+        // Verified on 1.14.4-lx.33: the field is `status` (plus `last_error`, `active_sha256`,
+        // `last_good_sha256`, `interrupted_apply`, `hooks`). Keep the tolerant lookup for other versions.
         let known = ["idle", "started", "fatal"]
         var state = ""
-        for key in ["state", "status", "core_state", "core"] {
+        for key in ["status", "state", "core_state", "core"] {
             if let value = (object[key] as? String)?.lowercased(), known.contains(value) {
                 state = value
                 break
@@ -58,11 +59,13 @@ struct LxdClient {
         return LxdStatus(state: state, lastError: object["last_error"] as? String ?? "")
     }
 
-    /// POST /admin/apply — 200 applied / 422 invalid / 500 failed (the daemon rolls back to last-good itself).
+    /// POST /admin/apply — 200 `{"applied":true,"active_sha256":…}` / 422 invalid / 500 failed (the daemon
+    /// rolls back to last-good itself). Error bodies are JSON `{"applied":false,"error":"…","rolled_back":bool}`.
     func apply(_ config: Data) async throws {
         let (code, data) = try await send("POST", "/admin/apply", body: config, timeout: 90)
         guard code == 200 else {
-            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let text = ((try? JSONSerialization.jsonObject(with: data)) as? JSON)?["error"] as? String ?? raw
             switch code {
             case 422: throw AppError("Конфиг отклонён ядром:\n\(stripANSI(text))")
             case 500: throw AppError("Ядро не запустилось с новым конфигом, выполнен откат на предыдущий:\n\(stripANSI(text))")
