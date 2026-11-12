@@ -41,6 +41,11 @@ final class AppState: ObservableObject {
     @Published var modeList: [String] = []
     @Published var ipInfo: IPInfo?
     @Published var ipLoading = false
+    @Published var proxyProbe: ProxyChecker.Result?
+    @Published var probing = false
+    /// The config the running core was given (profile + overlay), for node details the Clash API lacks.
+    @Published private(set) var activeConfig: JSON?
+    private var probedNode: String?
 
     let core: CoreManager
 
@@ -78,6 +83,25 @@ final class AppState: ObservableObject {
     private var clash: ClashAPI {
         let source = runningSettings ?? settings
         return ClashAPI(port: source.clashPort, secret: source.clashSecret)
+    }
+
+    var currentNode: CurrentNode? {
+        guard isRunning, let config = activeConfig, var tag = ConfigBuilder.proxyOutboundTag(config) else { return nil }
+        var hops = 0
+        while hops < 8, let group = groups.first(where: { $0.name == tag }), !group.now.isEmpty, group.now != tag {
+            tag = group.now
+            hops += 1
+        }
+        let outbounds = config["outbounds"] as? [JSON] ?? []
+        let outbound = outbounds.first { ($0["tag"] as? String) == tag }
+        let type = outbound?["type"] as? String ?? proxyTypes[tag] ?? "?"
+        let tls = outbound?["tls"] as? JSON
+        return CurrentNode(
+            tag: tag,
+            type: type,
+            transport: (outbound?["transport"] as? JSON)?["type"] as? String,
+            tls: tls?["enabled"] as? Bool ?? false,
+            reality: ((tls?["reality"] as? JSON)?["enabled"] as? Bool) ?? false)
     }
 
     // MARK: - Launch / quit
@@ -140,8 +164,7 @@ final class AppState: ObservableObject {
             coreState = .running
             startedAt = Date()
             if snapshot.systemProxyEnabled { await applySystemProxy(true) }
-            beginMonitoring()
-            Task { await refreshIP() }
+            beginMonitoring()   // the first proxy refresh triggers the IP lookup and the latency probe
         } catch {
             coreState = .failed(error.localizedDescription)
             alert = error.localizedDescription
@@ -203,7 +226,9 @@ final class AppState: ObservableObject {
               let object = ConfigBuilder.parseJSON(text) else {
             throw AppError("Не удалось прочитать профиль «\(profile.name)» — файл отсутствует или содержит некорректный JSON.")
         }
-        return try ConfigBuilder.serialize(ConfigBuilder.overlay(object, settings: settings))
+        let config = ConfigBuilder.overlay(object, settings: settings)
+        activeConfig = config
+        return try ConfigBuilder.serialize(config)
     }
 
     // MARK: - Per-app routing
@@ -339,6 +364,8 @@ final class AppState: ObservableObject {
         pollTask = nil
         logTask = nil
         startedAt = nil
+        probedNode = nil
+        proxyProbe = nil
         groups = []
         connections = []
         upSpeed = 0
@@ -383,6 +410,9 @@ final class AppState: ObservableObject {
             await refreshProxies()
             await refreshMode()
         }
+        if tick % 60 == 30 {
+            await probeProxy()
+        }
     }
 
     func refreshProxies() async {
@@ -408,6 +438,14 @@ final class AppState: ObservableObject {
         }
         if found != groups { groups = found }
         if types != proxyTypes { proxyTypes = types }
+        // A different node means a different exit IP and latency.
+        if let node = currentNode?.tag, node != probedNode {
+            probedNode = node
+            Task {
+                await probeProxy()
+                await refreshIP()
+            }
+        }
         if newDelays != delays { delays = newDelays }
     }
 
@@ -486,20 +524,23 @@ final class AppState: ObservableObject {
 
     // MARK: - Network detection
 
+    /// One HTTPS request to the test URL through the mixed inbound, timed end to end.
+    func probeProxy() async {
+        guard isRunning, !probing else { return }
+        probing = true
+        defer { probing = false }
+        let port = (runningSettings ?? settings).mixedPort
+        let result = await ProxyChecker.measure(port: port, url: settings.testURL)
+        if isRunning { proxyProbe = result }
+    }
+
     func refreshIP() async {
         guard isRunning else { return }
         ipLoading = true
         defer { ipLoading = false }
         // Ask through our own mixed inbound so the answer is the exit IP regardless of TUN / system proxy state.
         let port = (runningSettings ?? settings).mixedPort
-        let proxy: [AnyHashable: Any] = [
-            "HTTPEnable": 1, "HTTPProxy": "127.0.0.1", "HTTPPort": port,
-            "HTTPSEnable": 1, "HTTPSProxy": "127.0.0.1", "HTTPSPort": port,
-        ]
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.connectionProxyDictionary = proxy
-        configuration.timeoutIntervalForRequest = 8
-        let session = URLSession(configuration: configuration)
+        let session = ProxyChecker.session(port: port, timeout: 8)
         defer { session.invalidateAndCancel() }
         guard let url = URL(string: "https://ipwho.is/"),
               let (data, _) = try? await session.data(from: url),

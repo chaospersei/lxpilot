@@ -20,6 +20,7 @@ struct DashboardView: View {
                 }
                 SpeedCard()
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                    CurrentProxyCard()
                     ModeCard()
                     TrafficCard()
                     TunCard()
@@ -98,6 +99,90 @@ struct SpeedCard: View {
             .frame(height: 130)
         }
         .card()
+    }
+}
+
+/// Status lamp, node, protocol, exit IP and a timed HTTPS request through the proxy.
+struct CurrentProxyCard: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        let node = state.currentNode
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(lampColor)
+                    .frame(width: 10, height: 10)
+                    .shadow(color: lampColor.opacity(0.6), radius: 3)
+                Text("Текущий прокси")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer(minLength: 0)
+                Button {
+                    Task {
+                        await state.probeProxy()
+                        await state.refreshIP()
+                    }
+                } label: {
+                    if state.probing || state.ipLoading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(!state.isRunning || state.probing || state.ipLoading)
+                .help("Проверить заново: запрос по HTTPS через прокси и внешний IP")
+            }
+            Text(node?.tag ?? (state.isRunning ? "…" : "Ядро не запущено"))
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            row("Протокол", node?.protocolText ?? "—")
+            row("IP", ipText)
+            row("Задержка", latencyText, color: latencyColor)
+        }
+        .frame(minHeight: 118, alignment: .topLeading)
+        .card(selected: state.isRunning && (state.proxyProbe?.ok ?? false))
+    }
+
+    private var lampColor: Color {
+        guard state.isRunning else { return .gray }
+        guard let probe = state.proxyProbe else { return .orange }
+        guard let ms = probe.latencyMs else { return .red }
+        return ms <= 800 ? .green : .orange
+    }
+
+    private var ipText: String {
+        guard state.isRunning else { return "—" }
+        guard let info = state.ipInfo, let ip = info.ip else { return state.ipLoading ? "…" : "не определён" }
+        if let code = info.country_code, !code.isEmpty { return "\(ip) · \(code)" }
+        return ip
+    }
+
+    private var latencyText: String {
+        guard state.isRunning else { return "—" }
+        guard let probe = state.proxyProbe else { return state.probing ? "…" : "—" }
+        if let ms = probe.latencyMs { return "\(ms) мс · HTTPS" }
+        return probe.error ?? "ошибка"
+    }
+
+    private var latencyColor: Color? {
+        guard state.isRunning, let probe = state.proxyProbe else { return nil }
+        return probe.ok ? nil : .red
+    }
+
+    private func row(_ title: String, _ value: String, color: Color? = nil) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(color ?? Color.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
     }
 }
 

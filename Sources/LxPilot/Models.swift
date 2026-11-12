@@ -212,6 +212,25 @@ struct LogLine: Identifiable {
     let text: String
 }
 
+/// The node that carries "proxy" traffic right now: the selector chain resolved through `now`.
+struct CurrentNode: Equatable {
+    let tag: String
+    let type: String
+    let transport: String?
+    let tls: Bool
+    let reality: Bool
+
+    var protocolText: String {
+        let names = ["vless": "VLESS", "vmess": "VMess", "trojan": "Trojan", "shadowsocks": "Shadowsocks",
+                     "hysteria2": "Hysteria2", "hysteria": "Hysteria", "tuic": "TUIC", "wireguard": "WireGuard",
+                     "ssh": "SSH", "http": "HTTP", "socks": "SOCKS", "direct": "Direct", "anytls": "AnyTLS"]
+        var parts = [names[type.lowercased()] ?? type]
+        if let transport, !transport.isEmpty { parts.append(transport) }
+        if reality { parts.append("Reality") } else if tls { parts.append("TLS") }
+        return parts.joined(separator: " · ")
+    }
+}
+
 struct IPInfo: Decodable {
     let ip: String?
     let country: String?
