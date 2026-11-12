@@ -13,16 +13,20 @@ enum AppIcon {
         return NSImage(contentsOf: source)
     }()
 
-    /// Menu bar version, 18 pt: the tile without the canvas margin of the icon grid. Not a template,
-    /// so it keeps its colours next to the tinted speed image.
+    /// Where the rocket sits on the transparent 1024 canvas (unit coordinates, origin bottom-left):
+    /// fins to flame, the faint end of the exhaust cut off. Keep in sync with Tools/make-icon.swift.
+    private static let rocketBounds = CGRect(x: 0.29, y: 0.10, width: 0.42, height: 0.77)
+    static let traySize = NSSize(width: 11, height: 20)
+
+    /// Menu bar version: the rocket alone, 20 pt tall. Not a template, so it keeps its colours next
+    /// to the tinted speed text.
     static let tray: NSImage = {
-        let side: CGFloat = 18
         guard let full else {
-            return NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil) ?? NSImage(size: NSSize(width: side, height: side))
+            return NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil) ?? NSImage(size: traySize)
         }
-        let margin = full.size.width * 80 / 1024
-        let crop = NSRect(x: margin, y: margin, width: full.size.width - margin * 2, height: full.size.height - margin * 2)
-        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+        let crop = NSRect(x: rocketBounds.minX * full.size.width, y: rocketBounds.minY * full.size.height,
+                          width: rocketBounds.width * full.size.width, height: rocketBounds.height * full.size.height)
+        return NSImage(size: traySize, flipped: false) { rect in
             full.draw(in: rect, from: crop, operation: .sourceOver, fraction: 1)
             return true
         }
@@ -38,7 +42,6 @@ enum AppIcon {
 /// current, which makes them dark on a light menu bar and light on a dark one.
 enum MenuBarRenderer {
     private static let height: CGFloat = 22
-    private static let iconSide: CGFloat = 18
     private static let iconGap: CGFloat = 4
     private static let textWidth: CGFloat = 54
     private static let rowHeight: CGFloat = 8
@@ -51,7 +54,7 @@ enum MenuBarRenderer {
 
     static func image(up: Double, down: Double, history: [SpeedSample], showGraph: Bool) -> NSImage {
         let graphWidth = CGFloat(barCount) * (barWidth + barGap) - barGap
-        let textX = iconSide + iconGap
+        let textX = AppIcon.traySize.width + iconGap
         let width = textX + textWidth + (showGraph ? 5 + graphWidth : 0)
         let recent = Array(history.suffix(barCount))
         let ups = recent.map { $0.up }
@@ -60,7 +63,8 @@ enum MenuBarRenderer {
         let downText = compactSpeed(down)
 
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
-            AppIcon.tray.draw(in: NSRect(x: 0, y: (height - iconSide) / 2, width: iconSide, height: iconSide),
+            let icon = AppIcon.traySize
+            AppIcon.tray.draw(in: NSRect(x: 0, y: (height - icon.height) / 2, width: icon.width, height: icon.height),
                               from: .zero, operation: .sourceOver, fraction: 1)
 
             let paragraph = NSMutableParagraphStyle()
