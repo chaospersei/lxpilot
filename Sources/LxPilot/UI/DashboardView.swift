@@ -68,21 +68,24 @@ struct SpeedCard: View {
                     .foregroundStyle(state.accent)
             }
             .font(.system(size: 12, weight: .medium, design: .monospaced))
+            // X is the position in the 60-point window, not the sample id: ids keep growing across
+            // sessions while the window is reseeded with 0…59, which would squash the plot to one edge.
             Chart {
-                ForEach(state.speedHistory) { sample in
-                    AreaMark(x: .value("t", sample.id), y: .value("Загрузка", sample.down))
+                ForEach(Array(state.speedHistory.enumerated()), id: \.element.id) { index, sample in
+                    AreaMark(x: .value("t", index), y: .value("Загрузка", sample.down))
                         .foregroundStyle(LinearGradient(
                             colors: [state.accent.opacity(0.35), state.accent.opacity(0.02)],
                             startPoint: .top, endPoint: .bottom))
                         .interpolationMethod(.monotone)
-                    LineMark(x: .value("t", sample.id), y: .value("Загрузка", sample.down), series: .value("s", "down"))
+                    LineMark(x: .value("t", index), y: .value("Загрузка", sample.down), series: .value("s", "down"))
                         .foregroundStyle(state.accent)
                         .interpolationMethod(.monotone)
-                    LineMark(x: .value("t", sample.id), y: .value("Отдача", sample.up), series: .value("s", "up"))
+                    LineMark(x: .value("t", index), y: .value("Отдача", sample.up), series: .value("s", "up"))
                         .foregroundStyle(Color.orange)
                         .interpolationMethod(.monotone)
                 }
             }
+            .chartXScale(domain: 0...59)
             .chartXAxis(.hidden)
             .chartLegend(.hidden)
             .chartYAxis {
