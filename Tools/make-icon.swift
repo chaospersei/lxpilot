@@ -1,5 +1,6 @@
-// Renders the app icon: a bright glass rocket in grey-violet, pointing straight up, on a
-// transparent canvas — in the spirit of Shadowrocket with the "liquid glass" look of recent macOS.
+// Renders the app icon: a glass rocket in the JetBrains palette (violet #6B57FF, magenta #D060F0,
+// green #21D789, cyan #07C3F2), pointing straight up, on a transparent canvas — in the spirit of
+// Shadowrocket with the "liquid glass" look of recent macOS.
 //
 //   swift Tools/make-icon.swift [Resources]
 //
@@ -159,7 +160,7 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
         l.addPath(path); l.clip()
         l.translateBy(x: -8, y: -10)
         l.addPath(path)
-        l.setStrokeColor(rgba(0x3B2F6B, 0.55))
+        l.setStrokeColor(rgba(0x2E1F80, 0.55))
         l.setLineWidth(26)
         l.strokePath()
     }
@@ -188,7 +189,7 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
     // Thin violet contour outside the rim: keeps the shape legible on a light Dock or menu bar.
     ctx.saveGState()
     ctx.addPath(path)
-    ctx.setStrokeColor(rgba(0x33237A, 0.7))
+    ctx.setStrokeColor(rgba(0x2A1C7A, 0.7))
     ctx.setLineWidth(2.4)
     ctx.strokePath()
     ctx.restoreGState()
@@ -203,7 +204,7 @@ let ctx = makeContext()
 // Flame glow behind everything else.
 let glow = layer(blur: 46) { l in
     rocketSpace(l)
-    l.addPath(ellipse(0, 340, 120, 180)); l.setFillColor(rgba(0x9B78FF, 0.95)); l.fillPath()
+    l.addPath(ellipse(0, 340, 120, 180)); l.setFillColor(rgba(0x21D789, 0.9)); l.fillPath()
 }
 draw(glow, in: ctx)
 
@@ -212,7 +213,7 @@ rocketSpace(ctx)
 
 // Flame: hot white core fading to violet.
 fillLinear(ctx, flame, [
-    (rgba(0xFFFFFF, 1.0), 0), (rgba(0xD9C8FF, 1.0), 0.25), (rgba(0x8F67FF, 0.9), 0.65), (rgba(0x6E45F0, 0.0), 1),
+    (rgba(0xFFFFFF, 1.0), 0), (rgba(0xB9FFE3, 1.0), 0.22), (rgba(0x21D789, 0.95), 0.55), (rgba(0x07C3F2, 0.0), 1),
 ], from: P(0, 226), to: P(0, 470))
 let core = CGMutablePath()
 core.move(to: P(-24, 230)); core.addCurve(to: P(0, 390), control1: P(-30, 300), control2: P(-10, 360))
@@ -221,10 +222,10 @@ fillLinear(ctx, core, [(rgba(0xFFFFFF, 1), 0), (rgba(0xFFFFFF, 0), 1)], from: P(
 
 // Fins, nozzle, body, nose, window. Light comes from the upper left.
 let lightA = P(-120, -200), lightB = P(140, 220)
-glass(ctx, fin(mirror: false), tint: rgba(0x6A4FDC, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, fin(mirror: true), tint: rgba(0x6A4FDC, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, nozzle, tint: rgba(0x4C3AA8, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, body, tint: rgba(0x8B6CF5, 0.97), lightFrom: lightA, lightTo: lightB)
+glass(ctx, fin(mirror: false), tint: rgba(0x5050E0, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, fin(mirror: true), tint: rgba(0x5050E0, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, nozzle, tint: rgba(0x3E2A9E, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, body, tint: rgba(0x6B57FF, 0.97), lightFrom: lightA, lightTo: lightB)
 
 // Refraction band: a soft diagonal streak of light crossing the body.
 let band = layer(blur: 14) { l in
@@ -241,12 +242,12 @@ let nose = CGMutablePath()
 nose.addRect(CGRect(x: -120, y: -300, width: 240, height: 130))
 ctx.saveGState()
 ctx.addPath(body); ctx.clip()
-fillLinear(ctx, nose, [(rgba(0x5B33F2, 1.0), 0), (rgba(0x8D6CFF, 0.55), 1)], from: P(0, -262), to: P(0, -170))
+fillLinear(ctx, nose, [(rgba(0xD060F0, 1.0), 0), (rgba(0xA050F0, 0.75), 0.6), (rgba(0x6B57FF, 0.0), 1)], from: P(0, -262), to: P(0, -170))
 ctx.restoreGState()
 
 // Window: dark glass with a bright arc.
-glass(ctx, window, tint: rgba(0x241A52, 0.97), lightFrom: P(-40, -100), lightTo: P(40, -16), rim: 4)
-fillRadial(ctx, window, [(rgba(0xA68EFF, 0.65), 0), (rgba(0xA68EFF, 0), 1)], center: P(12, -44), radius: 40)
+glass(ctx, window, tint: rgba(0x1B1550, 0.97), lightFrom: P(-40, -100), lightTo: P(40, -16), rim: 4)
+fillRadial(ctx, window, [(rgba(0x07C3F2, 0.7), 0), (rgba(0x07C3F2, 0), 1)], center: P(12, -44), radius: 40)
 
 // Specular highlight along the body's near edge.
 let spec = layer(blur: 9) { l in
