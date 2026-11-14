@@ -310,8 +310,60 @@ final class AppState: ObservableObject {
     /// The selected profile as JSON (the running config when connected), for pickers in the editor.
     var profileConfig: JSON? {
         if let activeConfig { return activeConfig }
+        return storedProfileConfig
+    }
+
+    /// The profile file as written, without the overlay: what the "Правила профиля" list shows.
+    var storedProfileConfig: JSON? {
         guard let profile = currentProfile, let text = try? String(contentsOf: profile.fileURL, encoding: .utf8) else { return nil }
         return ConfigBuilder.parseJSON(text)
+    }
+
+    /// Copies the profile's expressible rules into the editor: rules without a mode go to the common
+    /// group, rules with `clash_mode` to a scenario of that name (created when missing), and a
+    /// mode-only rule becomes that scenario's fallback. Rules already present are not duplicated.
+    /// Afterwards the originals are dropped from the config the core gets (`replaceProfileRules`).
+    func importProfileRules() {
+        guard let config = storedProfileConfig else { return }
+        var routing = settings.routing
+        var imported = 0
+        var skipped = 0
+
+        func scenarioIndex(_ mode: String?) -> Int {
+            guard let mode else { return routing.scenarios.firstIndex(where: \.isCommon) ?? 0 }
+            if let i = routing.scenarios.firstIndex(where: { !$0.isCommon && $0.name.lowercased() == mode.lowercased() }) { return i }
+            routing.scenarios.append(RouteScenario(name: mode))
+            imported += 1     // a new scenario counts even when its rules add nothing
+            return routing.scenarios.count - 1
+        }
+
+        for item in ConfigBuilder.profileRules(config) {
+            switch item.converted {
+            case .rule(let rule, let mode):
+                let i = scenarioIndex(mode)
+                let exists = routing.scenarios[i].rules.contains {
+                    $0.match == rule.match && $0.values == rule.values && $0.target == rule.target
+                }
+                if !exists {
+                    routing.scenarios[i].rules.append(rule)
+                    imported += 1
+                }
+            case .fallback(let target, let mode):
+                routing.scenarios[scenarioIndex(mode)].fallback = target
+            case nil:
+                if item.role == .route { skipped += 1 }
+            }
+        }
+        routing.replaceProfileRules = true
+        setRouting(routing)
+
+        var text = imported == 0
+            ? "Новых правил нет: всё выражаемое уже есть в редакторе."
+            : "Импортировано \(imported) " + plural(imported, "правило", "правила", "правил") + "."
+        if skipped > 0 {
+            text += " \(skipped) " + plural(skipped, "правило", "правила", "правил") + " в редакторе не выражается (несколько условий, логические правила, действия lx) — " + (skipped == 1 ? "оно остаётся" : "они остаются") + " в профиле и действуют после правил редактора."
+        }
+        alert = text
     }
 
     // MARK: - Dashboard switches

@@ -177,6 +177,9 @@ struct RuleSetSource: Codable, Identifiable, Equatable {
 struct RoutingConfig: Codable, Equatable {
     var scenarios: [RouteScenario] = [RouteScenario(name: "Общие правила", isCommon: true)]
     var ruleSets: [RuleSetSource] = []
+    /// After an import: the profile rules the editor can express are dropped from the config the core
+    /// gets, so the editor's copies are the only ones and edits there take effect.
+    var replaceProfileRules = false
 
     init() {}
 
@@ -184,6 +187,7 @@ struct RoutingConfig: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         scenarios = try c.decodeIfPresent([RouteScenario].self, forKey: .scenarios) ?? RoutingConfig().scenarios
         ruleSets = try c.decodeIfPresent([RuleSetSource].self, forKey: .ruleSets) ?? []
+        replaceProfileRules = try c.decodeIfPresent(Bool.self, forKey: .replaceProfileRules) ?? false
         if !scenarios.contains(where: \.isCommon) {
             scenarios.insert(RouteScenario(name: "Общие правила", isCommon: true), at: 0)
         }

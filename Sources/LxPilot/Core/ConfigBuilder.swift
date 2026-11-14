@@ -80,6 +80,7 @@ enum ConfigBuilder {
 
         // Routing scenarios first, then app rules: each insertion lands ahead of the previous one,
         // so the forced per-app routes end up first and win over everything.
+        if settings.routing.replaceProfileRules { config = withoutConvertibleRules(config) }
         config = withRouting(config, routing: settings.routing)
         config = withAppRules(config, rules: settings.appRules.filter { $0.enabled })
 
@@ -170,10 +171,7 @@ extension ConfigBuilder {
         var routeRules = route["rules"] as? [JSON] ?? []
         var block = inserted
 
-        let terminating: Set<String> = ["route", "reject"]
-        let position = routeRules.firstIndex(where: {
-            $0["outbound"] != nil || terminating.contains(($0["action"] as? String) ?? "")
-        }) ?? routeRules.count
+        let position = insertionIndex(routeRules)
         let hijacksLater = routeRules[position...].contains { ($0["action"] as? String) == "hijack-dns" }
         let hijacksEarlier = routeRules[..<position].contains { ($0["action"] as? String) == "hijack-dns" }
         if hijacksLater, !hijacksEarlier {
@@ -372,5 +370,138 @@ enum ProfileImporter {
             }
         }
         return (text, info)
+    }
+}
+
+// MARK: - Profile rules
+
+/// A route rule of the profile as the "Маршруты" page shows it: readable conditions, the action,
+/// and the editor's equivalent when the rule can be expressed there.
+struct ProfileRule: Identifiable, Equatable {
+    enum Role: Equatable { case service, route }
+    enum Converted: Equatable {
+        case rule(RouteRule, mode: String?)
+        case fallback(RouteTarget, mode: String)
+    }
+
+    let id: Int
+    let conditions: String
+    let action: String
+    let mode: String?
+    let role: Role
+    let converted: Converted?
+}
+
+extension ConfigBuilder {
+    static let terminatingActions: Set<String> = ["route", "reject"]
+    private static let serviceActions: Set<String> = ["sniff", "hijack-dns", "resolve", "route-options"]
+
+    static func isTerminating(_ rule: JSON) -> Bool {
+        rule["outbound"] != nil || terminatingActions.contains((rule["action"] as? String) ?? "")
+    }
+
+    /// Where `insertRules` puts the editor's block: ahead of the first routing rule.
+    static func insertionIndex(_ rules: [JSON]) -> Int {
+        rules.firstIndex(where: isTerminating) ?? rules.count
+    }
+
+    static func directTags(_ config: JSON) -> Set<String> {
+        Set((config["outbounds"] as? [JSON] ?? []).filter { ($0["type"] as? String) == "direct" }.compactMap { $0["tag"] as? String })
+    }
+
+    static func stringList(_ value: Any?) -> [String] {
+        switch value {
+        case let list as [Any]: return list.map { "\($0)" }
+        case let single?: return ["\(single)"]
+        case nil: return []
+        }
+    }
+
+    /// The editor's equivalent of a profile rule: one supported condition, an optional `clash_mode`,
+    /// and an outbound or `reject`. A rule with only `clash_mode` is a scenario's fallback. Anything
+    /// else (logical rules, several conditions, lx actions like `bypass`) stays with the profile.
+    static func convert(_ rule: JSON, proxyTag: String?, directTags: Set<String>) -> ProfileRule.Converted? {
+        if (rule["type"] as? String) == "logical" { return nil }
+        let action = rule["action"] as? String
+        var consumed: Set<String> = []
+        let target: RouteTarget
+        switch action {
+        case "reject":
+            target = .block
+            consumed = ["action"]
+        case nil, "route":
+            guard let outbound = rule["outbound"] as? String else { return nil }
+            target = outbound == proxyTag ? .proxy : directTags.contains(outbound) ? .direct : .outbound(outbound)
+            consumed = ["outbound", "action"]
+        default:
+            return nil
+        }
+        let mode = rule["clash_mode"] as? String
+        if mode != nil { consumed.insert("clash_mode") }
+
+        let conditionKeys = rule.keys.filter { !consumed.contains($0) }
+        if conditionKeys.isEmpty {
+            guard let mode else { return nil }
+            return .fallback(target, mode: mode)
+        }
+        guard conditionKeys.count == 1, let key = conditionKeys.first,
+              let match = RouteMatch.allCases.first(where: { $0.key == key }) else { return nil }
+        let values = stringList(rule[key])
+        guard !values.isEmpty else { return nil }
+        return .rule(RouteRule(match: match, values: values, target: target), mode: mode)
+    }
+
+    static func profileRules(_ config: JSON) -> [ProfileRule] {
+        let rules = (config["route"] as? JSON)?["rules"] as? [JSON] ?? []
+        let proxyTag = proxyOutboundTag(config)
+        let directs = directTags(config)
+        let meta: Set<String> = ["action", "outbound", "clash_mode", "type", "mode", "rules", "timeout", "method", "no_drop", "strategy", "server", "sniffer"]
+
+        return rules.enumerated().map { index, rule in
+            let action = rule["action"] as? String
+            var conditions: [String] = []
+            if (rule["type"] as? String) == "logical" {
+                let count = (rule["rules"] as? [Any])?.count ?? 0
+                let op = (rule["mode"] as? String) == "or" ? "ИЛИ" : "И"
+                conditions.append("логическое (\(op)) из \(count) " + plural(count, "условия", "условий", "условий"))
+            }
+            for key in rule.keys.sorted() where !meta.contains(key) {
+                let values = stringList(rule[key])
+                if values == ["1"] || values == ["true"] { conditions.append(key) }
+                else if values == ["0"] || values == ["false"] { conditions.append("не " + key) }
+                else { conditions.append("\(key): " + values.joined(separator: ", ")) }
+            }
+
+            var actionText: String
+            switch action {
+            case nil, "route": actionText = "→ " + ((rule["outbound"] as? String) ?? "?")
+            case "reject": actionText = "reject" + ((rule["method"] as? String).map { " (\($0))" } ?? "")
+            case "sniff": actionText = "sniff" + ((rule["timeout"] as? String).map { " \($0)" } ?? "")
+            case let other?:
+                actionText = other
+                if let outbound = rule["outbound"] as? String { actionText += " → " + outbound }
+            }
+
+            return ProfileRule(
+                id: index,
+                conditions: conditions.isEmpty ? "любой трафик" : conditions.joined(separator: " и "),
+                action: actionText,
+                mode: rule["clash_mode"] as? String,
+                role: serviceActions.contains(action ?? "") ? .service : .route,
+                converted: convert(rule, proxyTag: proxyTag, directTags: directs)
+            )
+        }
+    }
+
+    /// Drops the profile rules the editor can express, so after an import only the editor's copies
+    /// remain and edits there are not shadowed by the originals.
+    static func withoutConvertibleRules(_ config: JSON) -> JSON {
+        var config = config
+        var route = config["route"] as? JSON ?? [:]
+        let proxyTag = proxyOutboundTag(config)
+        let directs = directTags(config)
+        route["rules"] = (route["rules"] as? [JSON] ?? []).filter { convert($0, proxyTag: proxyTag, directTags: directs) == nil }
+        config["route"] = route
+        return config
     }
 }
