@@ -1,6 +1,5 @@
-// Renders the app icon: a glass rocket in the JetBrains palette (violet #6B57FF, magenta #D060F0,
-// green #21D789, cyan #07C3F2), pointing straight up, on a transparent canvas — in the spirit of
-// Shadowrocket with the "liquid glass" look of recent macOS.
+// Renders the app icon: a glass rocket on smoky grey-violet background, in the spirit of
+// Shadowrocket with the translucent "liquid glass" look of recent iOS/macOS icons.
 //
 //   swift Tools/make-icon.swift [Resources]
 //
@@ -82,12 +81,17 @@ func ellipse(_ cx: CGFloat, _ cy: CGFloat, _ rx: CGFloat, _ ry: CGFloat) -> CGPa
 
 // MARK: - Geometry
 
-// The rocket is modelled pointing up (negative y) around (0, 0); the flame reaches y ≈ 470.
-let rocketCenter = P(512, 440)
-let rocketScale: CGFloat = 1.12
+// macOS icon grid: 824 pt shape on a 1024 canvas.
+let inset: CGFloat = 100
+let shapeRect = CGRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
+let squircle = CGPath(roundedRect: shapeRect, cornerWidth: 186, cornerHeight: 186, transform: nil)
+
+// The rocket is modelled pointing up (negative y) around (0, 0), then rotated 45° to point up-right.
+let rocketCenter = P(500, 520)
+let rocketAngle: CGFloat = .pi / 4
 func rocketSpace(_ ctx: CGContext) {
     ctx.translateBy(x: rocketCenter.x, y: rocketCenter.y)
-    ctx.scaleBy(x: rocketScale, y: rocketScale)
+    ctx.rotate(by: rocketAngle)
 }
 
 let body: CGPath = {
@@ -151,7 +155,7 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
     ctx.restoreGState()
 
     fillLinear(ctx, path, [
-        (rgba(0xFFFFFF, 0.42), 0), (rgba(0xFFFFFF, 0.14), 0.45), (rgba(0xFFFFFF, 0.0), 1),
+        (rgba(0xFFFFFF, 0.55), 0), (rgba(0xFFFFFF, 0.20), 0.45), (rgba(0xFFFFFF, 0.06), 1),
     ], from: lightFrom, to: lightTo)
 
     // Far-side darkening (refraction): the path shifted towards the light, drawn as a wide stroke, clipped inside.
@@ -160,7 +164,7 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
         l.addPath(path); l.clip()
         l.translateBy(x: -8, y: -10)
         l.addPath(path)
-        l.setStrokeColor(rgba(0x2E1F80, 0.55))
+        l.setStrokeColor(rgba(0x221C38, 0.7))
         l.setLineWidth(26)
         l.strokePath()
     }
@@ -172,7 +176,7 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
         l.addPath(path); l.clip()
         l.translateBy(x: 5, y: 6)
         l.addPath(path)
-        l.setStrokeColor(rgba(0xFFFFFF, 0.45))
+        l.setStrokeColor(rgba(0xFFFFFF, 0.55))
         l.setLineWidth(18)
         l.strokePath()
     }
@@ -181,16 +185,8 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
     ctx.saveGState()
     ctx.addPath(path); ctx.clip()
     ctx.addPath(path)
-    ctx.setStrokeColor(rgba(0xFFFFFF, 0.9))
+    ctx.setStrokeColor(rgba(0xFFFFFF, 0.85))
     ctx.setLineWidth(rim)
-    ctx.strokePath()
-    ctx.restoreGState()
-
-    // Thin violet contour outside the rim: keeps the shape legible on a light Dock or menu bar.
-    ctx.saveGState()
-    ctx.addPath(path)
-    ctx.setStrokeColor(rgba(0x2A1C7A, 0.7))
-    ctx.setLineWidth(2.4)
     ctx.strokePath()
     ctx.restoreGState()
 
@@ -201,36 +197,99 @@ func glass(_ ctx: CGContext, _ path: CGPath, tint: CGColor, lightFrom: CGPoint, 
 
 let ctx = makeContext()
 
-// Flame glow behind everything else.
-let glow = layer(blur: 46) { l in
-    rocketSpace(l)
-    l.addPath(ellipse(0, 340, 120, 180)); l.setFillColor(rgba(0x21D789, 0.9)); l.fillPath()
+// Drop shadow of the whole icon.
+ctx.saveGState()
+ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 28, color: rgba(0x000000, 0.35))
+ctx.addPath(squircle)
+ctx.setFillColor(rgba(0x3A3550))
+ctx.fillPath()
+ctx.restoreGState()
+
+// Base: grey-violet, lighter top-left.
+fillLinear(ctx, squircle, [
+    (rgba(0x7A7392), 0), (rgba(0x4B455F), 0.5), (rgba(0x242031), 1),
+], from: P(shapeRect.minX, shapeRect.minY), to: P(shapeRect.maxX, shapeRect.maxY))
+
+// Smoke: blurred blobs clipped to the shape.
+let smoke = layer(blur: 70) { l in
+    l.addPath(squircle); l.clip()
+    func blob(_ cx: CGFloat, _ cy: CGFloat, _ rx: CGFloat, _ ry: CGFloat, _ color: CGColor) {
+        l.addPath(ellipse(cx, cy, rx, ry)); l.setFillColor(color); l.fillPath()
+    }
+    blob(330, 300, 280, 210, rgba(0xA093D1, 0.60))
+    blob(760, 240, 190, 130, rgba(0xD6D0E6, 0.35))
+    blob(720, 560, 230, 270, rgba(0x7B63BF, 0.55))
+    blob(280, 800, 320, 190, rgba(0x120F1A, 0.65))
+    blob(620, 860, 260, 120, rgba(0x2B2540, 0.6))
+    blob(180, 560, 160, 220, rgba(0x8F86AE, 0.35))
 }
-draw(glow, in: ctx)
+ctx.saveGState(); ctx.addPath(squircle); ctx.clip(); draw(smoke, in: ctx); ctx.restoreGState()
+
+// Wisps: thin curling strokes of lighter and darker smoke, less blurred so they read as smoke.
+let wisps = layer(blur: 26) { l in
+    l.addPath(squircle); l.clip()
+    l.setLineCap(.round)
+    func wisp(_ pts: [(CGFloat, CGFloat)], width: CGFloat, color: CGColor) {
+        let p = CGMutablePath()
+        p.move(to: P(pts[0].0, pts[0].1))
+        p.addCurve(to: P(pts[3].0, pts[3].1), control1: P(pts[1].0, pts[1].1), control2: P(pts[2].0, pts[2].1))
+        l.addPath(p); l.setStrokeColor(color); l.setLineWidth(width); l.strokePath()
+    }
+    wisp([(120, 420), (300, 300), (420, 520), (640, 380)], width: 70, color: rgba(0xE4DEF2, 0.16))
+    wisp([(560, 160), (760, 120), (880, 330), (760, 480)], width: 56, color: rgba(0xEDE8F7, 0.14))
+    wisp([(140, 640), (260, 560), (120, 760), (300, 900)], width: 90, color: rgba(0x0F0C18, 0.45))
+    wisp([(520, 930), (700, 860), (880, 900), (900, 700)], width: 120, color: rgba(0x14111F, 0.5))
+    wisp([(700, 600), (860, 560), (900, 700), (820, 820)], width: 48, color: rgba(0xC9BFE8, 0.14))
+}
+ctx.saveGState(); ctx.addPath(squircle); ctx.clip(); draw(wisps, in: ctx); ctx.restoreGState()
+
+// Exhaust trail: a swoosh of smoke curling from the bottom-left corner to the nozzle.
+let trail = layer(blur: 22) { l in
+    l.addPath(squircle); l.clip()
+    let p = CGMutablePath()
+    p.move(to: P(210, 840))
+    p.addCurve(to: P(400, 870), control1: P(260, 900), control2: P(360, 920))
+    p.addCurve(to: P(372, 690), control1: P(470, 800), control2: P(420, 740))
+    for (width, alpha) in [(CGFloat(110), CGFloat(0.08)), (60, 0.14), (28, 0.26), (10, 0.42)] {
+        l.addPath(p)
+        l.setStrokeColor(rgba(0xE6E0F5, alpha))
+        l.setLineWidth(width)
+        l.setLineCap(.round)
+        l.strokePath()
+    }
+}
+ctx.saveGState(); ctx.addPath(squircle); ctx.clip(); draw(trail, in: ctx); ctx.restoreGState()
+
+// Flame glow behind everything else.
+let glow = layer(blur: 40) { l in
+    rocketSpace(l)
+    l.addPath(ellipse(0, 330, 90, 150)); l.setFillColor(rgba(0xB9A6FF, 0.75)); l.fillPath()
+}
+ctx.saveGState(); ctx.addPath(squircle); ctx.clip(); draw(glow, in: ctx); ctx.restoreGState()
 
 ctx.saveGState()
 rocketSpace(ctx)
 
 // Flame: hot white core fading to violet.
 fillLinear(ctx, flame, [
-    (rgba(0xFFFFFF, 1.0), 0), (rgba(0xB9FFE3, 1.0), 0.22), (rgba(0x21D789, 0.95), 0.55), (rgba(0x07C3F2, 0.0), 1),
+    (rgba(0xFFFFFF, 0.95), 0), (rgba(0xD9CCFF, 0.85), 0.35), (rgba(0x8E72E0, 0.55), 0.75), (rgba(0x6B50C8, 0.0), 1),
 ], from: P(0, 226), to: P(0, 470))
 let core = CGMutablePath()
-core.move(to: P(-24, 230)); core.addCurve(to: P(0, 390), control1: P(-30, 300), control2: P(-10, 360))
-core.addCurve(to: P(24, 230), control1: P(10, 360), control2: P(30, 300)); core.closeSubpath()
-fillLinear(ctx, core, [(rgba(0xFFFFFF, 1), 0), (rgba(0xFFFFFF, 0), 1)], from: P(0, 230), to: P(0, 390))
+core.move(to: P(-22, 230)); core.addCurve(to: P(0, 380), control1: P(-28, 300), control2: P(-10, 350))
+core.addCurve(to: P(22, 230), control1: P(10, 350), control2: P(28, 300)); core.closeSubpath()
+fillLinear(ctx, core, [(rgba(0xFFFFFF, 1), 0), (rgba(0xFFFFFF, 0), 1)], from: P(0, 230), to: P(0, 380))
 
-// Fins, nozzle, body, nose, window. Light comes from the upper left.
+// Fins, nozzle, body, nose, window.
 let lightA = P(-120, -200), lightB = P(140, 220)
-glass(ctx, fin(mirror: false), tint: rgba(0x5050E0, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, fin(mirror: true), tint: rgba(0x5050E0, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, nozzle, tint: rgba(0x3E2A9E, 0.98), lightFrom: lightA, lightTo: lightB, rim: 4)
-glass(ctx, body, tint: rgba(0x6B57FF, 0.97), lightFrom: lightA, lightTo: lightB)
-
+glass(ctx, fin(mirror: false), tint: rgba(0x8C7FB8, 0.55), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, fin(mirror: true), tint: rgba(0x8C7FB8, 0.55), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, nozzle, tint: rgba(0x5E5480, 0.7), lightFrom: lightA, lightTo: lightB, rim: 4)
+glass(ctx, body, tint: rgba(0xB4A9DA, 0.36), lightFrom: lightA, lightTo: lightB)
 // Refraction band: a soft diagonal streak of light crossing the body.
 let band = layer(blur: 14) { l in
     rocketSpace(l)
     l.addPath(body); l.clip()
+    l.translateBy(x: 0, y: 0)
     let s = CGMutablePath()
     s.move(to: P(-92, 60)); s.addLine(to: P(92, -60)); s.addLine(to: P(92, 10)); s.addLine(to: P(-92, 130)); s.closeSubpath()
     l.addPath(s); l.setFillColor(rgba(0xFFFFFF, 0.22)); l.fillPath()
@@ -242,22 +301,33 @@ let nose = CGMutablePath()
 nose.addRect(CGRect(x: -120, y: -300, width: 240, height: 130))
 ctx.saveGState()
 ctx.addPath(body); ctx.clip()
-fillLinear(ctx, nose, [(rgba(0xD060F0, 1.0), 0), (rgba(0xA050F0, 0.75), 0.6), (rgba(0x6B57FF, 0.0), 1)], from: P(0, -262), to: P(0, -170))
+fillLinear(ctx, nose, [(rgba(0x7D66C9, 0.85), 0), (rgba(0x9F8BE0, 0.35), 1)], from: P(0, -262), to: P(0, -170))
 ctx.restoreGState()
 
 // Window: dark glass with a bright arc.
-glass(ctx, window, tint: rgba(0x1B1550, 0.97), lightFrom: P(-40, -100), lightTo: P(40, -16), rim: 4)
-fillRadial(ctx, window, [(rgba(0x07C3F2, 0.7), 0), (rgba(0x07C3F2, 0), 1)], center: P(12, -44), radius: 40)
+glass(ctx, window, tint: rgba(0x2A2342, 0.95), lightFrom: P(-40, -100), lightTo: P(40, -16), rim: 4)
+fillRadial(ctx, window, [(rgba(0x8F7BE0, 0.55), 0), (rgba(0x8F7BE0, 0), 1)], center: P(12, -44), radius: 40)
 
 // Specular highlight along the body's near edge.
 let spec = layer(blur: 9) { l in
     rocketSpace(l)
     l.addPath(body); l.clip()
-    l.addPath(ellipse(-62, -40, 16, 150)); l.setFillColor(rgba(0xFFFFFF, 0.85)); l.fillPath()
-    l.addPath(ellipse(-20, -215, 26, 10)); l.setFillColor(rgba(0xFFFFFF, 0.7)); l.fillPath()
+    l.addPath(ellipse(-62, -40, 16, 150)); l.setFillColor(rgba(0xFFFFFF, 0.75)); l.fillPath()
+    l.addPath(ellipse(-20, -215, 26, 10)); l.setFillColor(rgba(0xFFFFFF, 0.6)); l.fillPath()
 }
 ctx.restoreGState()
 draw(spec, in: ctx)
+
+// Sheen over the whole tile and a thin rim, like a glass slab.
+fillLinear(ctx, squircle, [(rgba(0xFFFFFF, 0.20), 0), (rgba(0xFFFFFF, 0.0), 1)],
+           from: P(shapeRect.minX, shapeRect.minY), to: P(shapeRect.minX + 300, shapeRect.minY + 420))
+ctx.saveGState()
+ctx.addPath(squircle); ctx.clip()
+ctx.addPath(squircle)
+ctx.setStrokeColor(rgba(0xFFFFFF, 0.28))
+ctx.setLineWidth(6)
+ctx.strokePath()
+ctx.restoreGState()
 
 // MARK: - Output
 

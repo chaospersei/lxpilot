@@ -13,13 +13,13 @@ enum AppIcon {
         return NSImage(contentsOf: source)
     }()
 
-    /// Where the rocket sits on the transparent 1024 canvas (unit coordinates, origin bottom-left):
-    /// fins to flame, the faint end of the exhaust cut off. Keep in sync with Tools/make-icon.swift.
-    private static let rocketBounds = CGRect(x: 0.29, y: 0.10, width: 0.42, height: 0.77)
-    static let traySize = NSSize(width: 11, height: 20)
+    /// The tile on the 1024 canvas without the margin of the macOS icon grid (unit coordinates).
+    /// Keep in sync with `inset` in Tools/make-icon.swift.
+    private static let rocketBounds = CGRect(x: 80.0 / 1024, y: 80.0 / 1024, width: 864.0 / 1024, height: 864.0 / 1024)
+    static let traySize = NSSize(width: 18, height: 18)
 
-    /// Menu bar version: the rocket alone, 20 pt tall. Not a template, so it keeps its colours next
-    /// to the tinted speed text.
+    /// Menu bar version: the tile, 18 pt. Not a template, so it keeps its colours next to the
+    /// tinted speed text.
     static let tray: NSImage = {
         guard let full else {
             return NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil) ?? NSImage(size: traySize)
