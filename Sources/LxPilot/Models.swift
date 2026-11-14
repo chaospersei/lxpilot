@@ -83,6 +83,113 @@ struct AppRule: Codable, Identifiable, Equatable {
     var isBundle: Bool { path.hasSuffix(".app") }
 }
 
+// MARK: - Routing editor
+
+/// What a routing rule matches on; `key` is the sing-box rule field.
+enum RouteMatch: String, Codable, CaseIterable, Identifiable {
+    case domainSuffix, domainKeyword, domainFull, domainRegex, ipCIDR, ruleSet, port, sniffedProtocol
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .domainSuffix: return "Домен и поддомены"
+        case .domainKeyword: return "Домен содержит"
+        case .domainFull: return "Домен точно"
+        case .domainRegex: return "Домен по regex"
+        case .ipCIDR: return "IP / подсеть"
+        case .ruleSet: return "Набор правил"
+        case .port: return "Порт"
+        case .sniffedProtocol: return "Протокол"
+        }
+    }
+
+    var key: String {
+        switch self {
+        case .domainSuffix: return "domain_suffix"
+        case .domainKeyword: return "domain_keyword"
+        case .domainFull: return "domain"
+        case .domainRegex: return "domain_regex"
+        case .ipCIDR: return "ip_cidr"
+        case .ruleSet: return "rule_set"
+        case .port: return "port"
+        case .sniffedProtocol: return "protocol"
+        }
+    }
+
+    var placeholder: String {
+        switch self {
+        case .domainSuffix: return "youtube.com, googlevideo.com"
+        case .domainKeyword: return "google, telegram"
+        case .domainFull: return "api.openai.com"
+        case .domainRegex: return "^(.+\\.)?example\\.com$"
+        case .ipCIDR: return "10.0.0.0/8, 1.1.1.1"
+        case .ruleSet: return "geoip-ru, geosite-ru"
+        case .port: return "443, 8443"
+        case .sniffedProtocol: return "tls, quic, bittorrent"
+        }
+    }
+}
+
+/// Where matched traffic goes. `outbound` is a tag from the profile (node or group).
+enum RouteTarget: Codable, Equatable, Hashable {
+    case proxy, direct, block
+    case outbound(String)
+
+    var title: String {
+        switch self {
+        case .proxy: return "Через прокси"
+        case .direct: return "Напрямую"
+        case .block: return "Блокировать"
+        case .outbound(let tag): return tag
+        }
+    }
+}
+
+struct RouteRule: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var match: RouteMatch = .domainSuffix
+    var values: [String] = []
+    var target: RouteTarget = .proxy
+    var enabled = true
+}
+
+/// A switchable group of rules: becomes a `clash_mode` of the core and a choice in the mode card.
+/// The common group (`isCommon`) has no mode: its rules apply always.
+struct RouteScenario: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var enabled = true
+    var rules: [RouteRule] = []
+    /// Where everything else goes while this scenario is selected; ignored for the common group.
+    var fallback: RouteTarget = .proxy
+    var isCommon = false
+}
+
+/// A remote rule-set the editor may reference in addition to the ones the profile defines.
+struct RuleSetSource: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var tag: String
+    var url: String
+    var format = "binary"   // binary (.srs) | source (.json)
+    var enabled = true
+}
+
+struct RoutingConfig: Codable, Equatable {
+    var scenarios: [RouteScenario] = [RouteScenario(name: "Общие правила", isCommon: true)]
+    var ruleSets: [RuleSetSource] = []
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        scenarios = try c.decodeIfPresent([RouteScenario].self, forKey: .scenarios) ?? RoutingConfig().scenarios
+        ruleSets = try c.decodeIfPresent([RuleSetSource].self, forKey: .ruleSets) ?? []
+        if !scenarios.contains(where: \.isCommon) {
+            scenarios.insert(RouteScenario(name: "Общие правила", isCommon: true), at: 0)
+        }
+    }
+}
+
 struct AppSettings: Codable, Equatable {
     var engine: Engine = .lxd
     var tunEnabled = false
@@ -104,6 +211,7 @@ struct AppSettings: Codable, Equatable {
     var accent: AccentChoice = .indigo
     var menuBarStyle: MenuBarStyle = .speedGraph
     var appRules: [AppRule] = []
+    var routing = RoutingConfig()
 
     init() {}
 
@@ -131,6 +239,7 @@ struct AppSettings: Codable, Equatable {
         accent = try c.decodeIfPresent(AccentChoice.self, forKey: .accent) ?? d.accent
         menuBarStyle = try c.decodeIfPresent(MenuBarStyle.self, forKey: .menuBarStyle) ?? d.menuBarStyle
         appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
+        routing = try c.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? d.routing
     }
 
     static func randomSecret() -> String {
@@ -164,12 +273,13 @@ enum CoreState: Equatable {
 }
 
 enum Page: String, CaseIterable, Identifiable {
-    case dashboard, proxies, apps, profiles, connections, logs, tools
+    case dashboard, proxies, routes, apps, profiles, connections, logs, tools
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: return "Панель"
         case .proxies: return "Прокси"
+        case .routes: return "Маршруты"
         case .apps: return "Приложения"
         case .profiles: return "Профили"
         case .connections: return "Соединения"
@@ -181,6 +291,7 @@ enum Page: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "square.grid.2x2"
         case .proxies: return "point.3.connected.trianglepath.dotted"
+        case .routes: return "arrow.triangle.swap"
         case .apps: return "app.badge.checkmark"
         case .profiles: return "folder"
         case .connections: return "arrow.left.arrow.right"

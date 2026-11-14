@@ -46,6 +46,7 @@ final class AppState: ObservableObject {
     /// The config the running core was given (profile + overlay), for node details the Clash API lacks.
     @Published private(set) var activeConfig: JSON?
     private var probedNode: String?
+    private var routingApplyTask: Task<Void, Never>?
 
     let core: CoreManager
 
@@ -289,6 +290,28 @@ final class AppState: ObservableObject {
         panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }
         for url in panel.urls { await addAppRule(url: url) }
+    }
+
+    // MARK: - Routing editor
+
+    /// Stores the editor state at once and pushes it to the running core a moment later, so a burst
+    /// of edits becomes one apply.
+    func setRouting(_ routing: RoutingConfig) {
+        guard settings.routing != routing else { return }
+        settings.routing = routing
+        routingApplyTask?.cancel()
+        routingApplyTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled, let self, self.isRunning else { return }
+            await self.reload()
+        }
+    }
+
+    /// The selected profile as JSON (the running config when connected), for pickers in the editor.
+    var profileConfig: JSON? {
+        if let activeConfig { return activeConfig }
+        guard let profile = currentProfile, let text = try? String(contentsOf: profile.fileURL, encoding: .utf8) else { return nil }
+        return ConfigBuilder.parseJSON(text)
     }
 
     // MARK: - Dashboard switches

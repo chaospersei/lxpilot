@@ -78,6 +78,9 @@ enum ConfigBuilder {
         experimental["cache_file"] = cache
         config["experimental"] = experimental
 
+        // Routing scenarios first, then app rules: each insertion lands ahead of the previous one,
+        // so the forced per-app routes end up first and win over everything.
+        config = withRouting(config, routing: settings.routing)
         config = withAppRules(config, rules: settings.appRules.filter { $0.enabled })
 
         guard settings.manageInbounds else { return config }
@@ -145,23 +148,56 @@ extension ConfigBuilder {
         return rule.isBundle ? "^\(escaped)/" : "^\(escaped)$"
     }
 
-    /// Inserts `process_path_regex` rules ahead of the first routing rule, after the leading
-    /// `sniff` / `hijack-dns` actions, so DNS interception keeps working and the forced route wins
-    /// over the profile's rules and over the Global/Direct clash modes.
+    /// Tag of the first `direct` outbound, adding one when the profile has none.
+    static func ensureDirectTag(_ config: inout JSON) -> String {
+        var outbounds = config["outbounds"] as? [JSON] ?? []
+        if let tag = outbounds.first(where: { ($0["type"] as? String) == "direct" })?["tag"] as? String { return tag }
+        let direct: JSON = ["type": "direct", "tag": "direct"]
+        outbounds.append(direct)
+        config["outbounds"] = outbounds
+        return "direct"
+    }
+
+    /// Inserts rules ahead of the first routing rule, after the leading `sniff` / `hijack-dns`
+    /// actions, so DNS interception keeps working and the inserted rules win over the profile's own
+    /// rules and over the Global/Direct clash modes. A profile may hijack DNS only after some routing
+    /// rules; then a copy of that action goes in front, otherwise DNS of the matched traffic would
+    /// follow the inserted route instead of the resolver.
+    static func insertRules(_ inserted: [JSON], into config: JSON) -> JSON {
+        guard !inserted.isEmpty else { return config }
+        var config = config
+        var route = config["route"] as? JSON ?? [:]
+        var routeRules = route["rules"] as? [JSON] ?? []
+        var block = inserted
+
+        let terminating: Set<String> = ["route", "reject"]
+        let position = routeRules.firstIndex(where: {
+            $0["outbound"] != nil || terminating.contains(($0["action"] as? String) ?? "")
+        }) ?? routeRules.count
+        let hijacksLater = routeRules[position...].contains { ($0["action"] as? String) == "hijack-dns" }
+        let hijacksEarlier = routeRules[..<position].contains { ($0["action"] as? String) == "hijack-dns" }
+        if hijacksLater, !hijacksEarlier {
+            let hijack: JSON = ["protocol": "dns", "action": "hijack-dns"]
+            block.insert(hijack, at: 0)
+        }
+        // Same for sniffing: domain rules need the sniffed host for TUN traffic, so a profile that
+        // sniffs only later gets its sniff rule repeated in front of the inserted block.
+        let sniffEarlier = routeRules[..<position].contains { ($0["action"] as? String) == "sniff" }
+        if !sniffEarlier, let sniff = routeRules[position...].first(where: { ($0["action"] as? String) == "sniff" }) {
+            block.insert(sniff, at: 0)
+        }
+        routeRules.insert(contentsOf: block, at: position)
+        route["rules"] = routeRules
+        config["route"] = route
+        return config
+    }
+
+    /// `process_path_regex` rules for the "Приложения" page, one per mode.
     static func withAppRules(_ config: JSON, rules: [AppRule]) -> JSON {
         guard !rules.isEmpty else { return config }
         var config = config
-        var outbounds = config["outbounds"] as? [JSON] ?? []
-        var route = config["route"] as? JSON ?? [:]
-        var routeRules = route["rules"] as? [JSON] ?? []
-
-        var directTag = outbounds.first(where: { ($0["type"] as? String) == "direct" })?["tag"] as? String
-        if directTag == nil, rules.contains(where: { $0.mode == .direct }) {
-            let direct: JSON = ["type": "direct", "tag": "direct"]
-            outbounds.append(direct)
-            directTag = "direct"
-        }
         let proxyTag = proxyOutboundTag(config)
+        let directTag = rules.contains(where: { $0.mode == .direct }) ? ensureDirectTag(&config) : nil
 
         var inserted: [JSON] = []
         for mode in AppRouteMode.allCases {
@@ -170,26 +206,101 @@ extension ConfigBuilder {
             let rule: JSON = ["process_path_regex": patterns, "outbound": target]
             inserted.append(rule)
         }
-        guard !inserted.isEmpty else { return config }
+        return insertRules(inserted, into: config)
+    }
+}
 
-        let terminating: Set<String> = ["route", "reject"]
-        let position = routeRules.firstIndex(where: {
-            $0["outbound"] != nil || terminating.contains(($0["action"] as? String) ?? "")
-        }) ?? routeRules.count
-        // A profile may hijack DNS only after some routing rules; keep that interception for the
-        // forced apps too, otherwise their DNS would follow the forced route instead of the resolver.
-        let hijacksLater = routeRules[position...].contains { ($0["action"] as? String) == "hijack-dns" }
-        let hijacksEarlier = routeRules[..<position].contains { ($0["action"] as? String) == "hijack-dns" }
-        if hijacksLater, !hijacksEarlier {
-            let hijack: JSON = ["protocol": "dns", "action": "hijack-dns"]
-            inserted.insert(hijack, at: 0)
+// MARK: - Routing scenarios
+
+extension ConfigBuilder {
+    /// Rule-set tags the profile defines itself.
+    static func profileRuleSetTags(_ config: JSON) -> [String] {
+        ((config["route"] as? JSON)?["rule_set"] as? [JSON] ?? []).compactMap { $0["tag"] as? String }
+    }
+
+    /// Tags a rule may send traffic to: groups first, then nodes.
+    static func routableOutboundTags(_ config: JSON) -> [String] {
+        let outbounds = config["outbounds"] as? [JSON] ?? []
+        let skip: Set<String> = ["direct", "block", "dns"]
+        let groups = outbounds.filter { ["selector", "urltest"].contains(($0["type"] as? String) ?? "") }
+        let nodes = outbounds.filter { !skip.contains(($0["type"] as? String) ?? "") && !["selector", "urltest"].contains(($0["type"] as? String) ?? "") }
+        return (groups + nodes).compactMap { $0["tag"] as? String }
+    }
+
+    /// The rule as sing-box JSON, or nil when it has nothing usable (then it is skipped, not broken).
+    static func ruleJSON(_ rule: RouteRule, mode: String?, proxyTag: String?, directTag: String, knownRuleSets: Set<String>) -> JSON? {
+        guard rule.enabled else { return nil }
+        var values = rule.values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if rule.match == .ruleSet { values = values.filter { knownRuleSets.contains($0) } }
+        guard !values.isEmpty else { return nil }
+
+        var json: JSON = [:]
+        if rule.match == .port {
+            let ports = values.compactMap { Int($0) }.filter { (1...65535).contains($0) }
+            guard !ports.isEmpty else { return nil }
+            json[rule.match.key] = ports
+        } else {
+            json[rule.match.key] = values
         }
-        routeRules.insert(contentsOf: inserted, at: position)
+        if let mode { json["clash_mode"] = mode }
+        switch rule.target {
+        case .block: json["action"] = "reject"
+        case .direct: json["outbound"] = directTag
+        case .proxy:
+            guard let proxyTag else { return nil }
+            json["outbound"] = proxyTag
+        case .outbound(let tag):
+            json["outbound"] = tag
+        }
+        return json
+    }
 
-        route["rules"] = routeRules
+    /// Common rules (no mode) and one `clash_mode` block per enabled scenario, each closed by the
+    /// scenario's fallback so the mode fully decides where the rest goes.
+    static func withRouting(_ config: JSON, routing: RoutingConfig) -> JSON {
+        let active = routing.scenarios.filter { $0.enabled && ($0.isCommon ? !$0.rules.isEmpty : true) }
+        guard !active.isEmpty else { return config }
+        var config = config
+        let proxyTag = proxyOutboundTag(config)
+        let directTag = ensureDirectTag(&config)
+
+        // Remote rule-sets from the editor, unless the profile already defines the tag.
+        var route = config["route"] as? JSON ?? [:]
+        var ruleSets = route["rule_set"] as? [JSON] ?? []
+        var known = Set(profileRuleSetTags(config))
+        for source in routing.ruleSets where source.enabled && !source.tag.isEmpty && !known.contains(source.tag) {
+            guard URL(string: source.url)?.scheme != nil else { continue }
+            let entry: JSON = [
+                "tag": source.tag, "type": "remote", "format": source.format, "url": source.url,
+                "download_detour": directTag, "update_interval": "24h",
+            ]
+            ruleSets.append(entry)
+            known.insert(source.tag)
+        }
+        route["rule_set"] = ruleSets
         config["route"] = route
-        config["outbounds"] = outbounds
-        return config
+
+        var inserted: [JSON] = []
+        for scenario in active {
+            let mode: String? = scenario.isCommon ? nil : scenario.name.trimmingCharacters(in: .whitespaces)
+            if let mode, mode.isEmpty { continue }
+            for rule in scenario.rules {
+                if let json = ruleJSON(rule, mode: mode, proxyTag: proxyTag, directTag: directTag, knownRuleSets: known) {
+                    inserted.append(json)
+                }
+            }
+            if let mode {
+                var fallback: JSON = ["clash_mode": mode]
+                switch scenario.fallback {
+                case .block: fallback["action"] = "reject"
+                case .direct: fallback["outbound"] = directTag
+                case .proxy: fallback["outbound"] = proxyTag ?? directTag
+                case .outbound(let tag): fallback["outbound"] = tag
+                }
+                inserted.append(fallback)
+            }
+        }
+        return insertRules(inserted, into: config)
     }
 }
 
