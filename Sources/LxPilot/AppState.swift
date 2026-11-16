@@ -85,6 +85,11 @@ final class AppState: ObservableObject {
         let source = runningSettings ?? settings
         return ClashAPI(port: source.clashPort, secret: source.clashSecret)
     }
+    private var lxd: LxdClient? {
+        let source = runningSettings ?? settings
+        guard source.engine == .lxd else { return nil }
+        return LxdClient(port: source.lxdPort, secret: source.lxdSecret)
+    }
 
     var currentNode: CurrentNode? {
         guard isRunning, let config = activeConfig, var tag = ConfigBuilder.proxyOutboundTag(config) else { return nil }
@@ -174,6 +179,7 @@ final class AppState: ObservableObject {
 
     func stop() async {
         if case .failed = coreState {
+            await core.stop()   // a daemon may still be up with a dead core inside
             coreState = .stopped
             return
         }
@@ -213,13 +219,19 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The core stopped answering or its process exited. With lxd the daemon process usually
+    /// outlives its core, so it is stopped explicitly; otherwise the next start would launch a
+    /// second daemon on the same port and orphan this one.
     private func coreDied(_ message: String) {
         guard coreState == .running else { return }
         endMonitoring()
         runningSettings = nil
         coreState = .failed(message)
         alert = message
-        Task { await applySystemProxy(false) }
+        Task {
+            await applySystemProxy(false)
+            await core.stop()
+        }
     }
 
     private func buildConfig(profile: Profile, settings: AppSettings) throws -> Data {
@@ -475,6 +487,12 @@ final class AppState: ObservableObject {
             pollFailures = 0
         } catch {
             pollFailures += 1
+            // The lxd daemon knows at once whether its core is gone, and why.
+            if let lxd, let status = try? await lxd.status(), status.state != "started" {
+                let reason = status.lastError.isEmpty ? "состояние демона: \(status.state)" : stripANSI(status.lastError)
+                coreDied("Ядро остановилось внутри демона lxd (\(reason)).")
+                return
+            }
             // A root core cannot report its own exit to us, so repeated silence means it is gone.
             if pollFailures >= 6 {
                 coreDied("Ядро перестало отвечать.")

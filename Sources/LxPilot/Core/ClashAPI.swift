@@ -131,6 +131,14 @@ struct ClashAPI {
         (try? await send("/version", timeout: 2)) != nil
     }
 
+    /// Something answers HTTP on the port, ours or not: a foreign core rejects our secret with 401,
+    /// which `isAlive` would report as "nobody there".
+    func reachable() async -> Bool {
+        guard let request = try? makeRequest("/version", timeout: 2),
+              let (_, response) = try? await ClashAPI.session.data(for: request) else { return false }
+        return response is HTTPURLResponse
+    }
+
     func proxies() async throws -> ClashProxiesResponse {
         try JSONDecoder().decode(ClashProxiesResponse.self, from: try await send("/proxies"))
     }

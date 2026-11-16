@@ -41,8 +41,11 @@ final class CoreManager {
         let root = settings.tunEnabled
         let clash = ClashAPI(port: settings.clashPort, secret: settings.clashSecret)
         let lxd = LxdClient(port: settings.lxdPort, secret: settings.lxdSecret)
-        if await clash.isAlive() {
+        if await clash.reachable() {
             throw AppError("Порт Clash API \(settings.clashPort) уже занят другим экземпляром ядра. Остановите его или смените порт в «Инструментах».")
+        }
+        if settings.engine == .lxd, await lxd.reachable() {
+            throw AppError("Порт демона lxd \(settings.lxdPort) уже занят другим демоном. Остановите его или смените порт в «Инструментах».")
         }
 
         let arguments: [String]

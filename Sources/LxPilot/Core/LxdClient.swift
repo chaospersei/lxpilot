@@ -33,29 +33,19 @@ struct LxdClient {
         return code == 200
     }
 
+    /// Something answers HTTP on the port, ours or not (a foreign daemon replies 401 to our secret).
+    func reachable() async -> Bool {
+        guard let (code, _) = try? await send("GET", "/admin/status", timeout: 2) else { return false }
+        return code != 0
+    }
+
     func status() async throws -> LxdStatus {
         let (code, data) = try await send("GET", "/admin/status", timeout: 3)
         guard code == 200, let object = (try? JSONSerialization.jsonObject(with: data)) as? JSON else {
             throw AppError("lxd /admin/status: HTTP \(code)")
         }
-        // Verified on 1.14.4-lx.33: the field is `status` (plus `last_error`, `active_sha256`,
-        // `last_good_sha256`, `interrupted_apply`, `hooks`). Keep the tolerant lookup for other versions.
-        let known = ["idle", "started", "fatal"]
-        var state = ""
-        for key in ["status", "state", "core_state", "core"] {
-            if let value = (object[key] as? String)?.lowercased(), known.contains(value) {
-                state = value
-                break
-            }
-        }
-        if state.isEmpty {
-            for value in object.values {
-                if let text = (value as? String)?.lowercased(), known.contains(text) {
-                    state = text
-                    break
-                }
-            }
-        }
+        // Verified on 1.14.4-lx.33: the field is `status` (idle | started | fatal).
+        let state = (object["status"] as? String)?.lowercased() ?? ""
         return LxdStatus(state: state, lastError: object["last_error"] as? String ?? "")
     }
 
