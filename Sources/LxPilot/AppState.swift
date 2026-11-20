@@ -46,6 +46,7 @@ final class AppState: ObservableObject {
     /// The config the running core was given (profile + overlay), for node details the Clash API lacks.
     @Published private(set) var activeConfig: JSON?
     private var probedNode: String?
+    private var autoTestedGroups: Set<String> = []
     private var routingApplyTask: Task<Void, Never>?
 
     let core: CoreManager
@@ -245,6 +246,12 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Per-app routing
+
+    func setAutoSelector(_ enabled: Bool) async {
+        guard settings.autoSelector != enabled else { return }
+        settings.autoSelector = enabled
+        if isRunning { await reload() }
+    }
 
     /// Replaces the rule list and pushes it to the running core (hot apply with lxd, restart with classic).
     func setAppRules(_ rules: [AppRule]) async {
@@ -453,6 +460,7 @@ final class AppState: ObservableObject {
         startedAt = nil
         probedNode = nil
         proxyProbe = nil
+        autoTestedGroups = []
         groups = []
         connections = []
         upSpeed = 0
@@ -540,6 +548,11 @@ final class AppState: ObservableObject {
             }
         }
         if newDelays != delays { delays = newDelays }
+        // First sight of a group this session: measure its members once, so the page opens with numbers.
+        for group in found where !autoTestedGroups.contains(group.name) {
+            autoTestedGroups.insert(group.name)
+            Task { await test(group: group) }
+        }
     }
 
     private func refreshMode() async {

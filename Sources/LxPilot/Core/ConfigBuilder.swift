@@ -80,6 +80,7 @@ enum ConfigBuilder {
 
         // Routing scenarios first, then app rules: each insertion lands ahead of the previous one,
         // so the forced per-app routes end up first and win over everything.
+        if settings.autoSelector { config = withNodeSelector(config) }
         if settings.routing.replaceProfileRules { config = withoutConvertibleRules(config) }
         config = withRouting(config, routing: settings.routing)
         config = withAppRules(config, rules: settings.appRules.filter { $0.enabled })
@@ -120,6 +121,47 @@ enum ConfigBuilder {
             config["route"] = route
         }
         config["inbounds"] = inbounds
+        return config
+    }
+}
+
+// MARK: - Node selector
+
+extension ConfigBuilder {
+    static let nodeSelectorTag = "proxy"
+    static let nodeSelectorFallbackTag = "lxpilot-proxy"
+
+    /// A profile that is just a list of nodes gets a `selector` over all of them, placed first, so
+    /// the "Прокси" page has something to show and switch. `route.final` that pointed at a node is
+    /// redirected to the selector with that node as `default`, so nothing changes until the user
+    /// picks another one; rules that name a node directly keep it.
+    static func withNodeSelector(_ config: JSON) -> JSON {
+        var outbounds = config["outbounds"] as? [JSON] ?? []
+        let groupTypes: Set<String> = ["selector", "urltest"]
+        guard !outbounds.contains(where: { groupTypes.contains(($0["type"] as? String) ?? "") }) else { return config }
+        let nodes = outbounds.compactMap { outbound -> String? in
+            guard !utilityTypes.contains((outbound["type"] as? String) ?? "") else { return nil }
+            return outbound["tag"] as? String
+        }
+        guard !nodes.isEmpty else { return config }
+
+        let tags = Set(outbounds.compactMap { $0["tag"] as? String })
+        let tag = tags.contains(nodeSelectorTag) ? nodeSelectorFallbackTag : nodeSelectorTag
+        guard !tags.contains(tag) else { return config }
+
+        var config = config
+        var route = config["route"] as? JSON ?? [:]
+        let final = route["final"] as? String
+        var selector: JSON = ["type": "selector", "tag": tag, "outbounds": nodes, "interrupt_exist_connections": false]
+        if let final, nodes.contains(final) {
+            selector["default"] = final
+            route["final"] = tag
+        } else if final == nil {
+            route["final"] = tag   // sing-box would otherwise take the first outbound, which is now the selector anyway
+        }
+        outbounds.insert(selector, at: 0)
+        config["outbounds"] = outbounds
+        config["route"] = route
         return config
     }
 }

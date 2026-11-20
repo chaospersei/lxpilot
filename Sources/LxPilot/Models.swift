@@ -199,6 +199,8 @@ struct AppSettings: Codable, Equatable {
     var tunEnabled = false
     var systemProxyEnabled = true
     var manageInbounds = true
+    /// Profile without a selector group: add one over all its nodes so they can be switched by hand.
+    var autoSelector = true
     var allowLAN = false
     var mixedPort = 7890
     var clashPort = 19090
@@ -227,6 +229,7 @@ struct AppSettings: Codable, Equatable {
         tunEnabled = try c.decodeIfPresent(Bool.self, forKey: .tunEnabled) ?? d.tunEnabled
         systemProxyEnabled = try c.decodeIfPresent(Bool.self, forKey: .systemProxyEnabled) ?? d.systemProxyEnabled
         manageInbounds = try c.decodeIfPresent(Bool.self, forKey: .manageInbounds) ?? d.manageInbounds
+        autoSelector = try c.decodeIfPresent(Bool.self, forKey: .autoSelector) ?? d.autoSelector
         allowLAN = try c.decodeIfPresent(Bool.self, forKey: .allowLAN) ?? d.allowLAN
         mixedPort = try c.decodeIfPresent(Int.self, forKey: .mixedPort) ?? d.mixedPort
         clashPort = try c.decodeIfPresent(Int.self, forKey: .clashPort) ?? d.clashPort

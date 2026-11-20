@@ -24,7 +24,7 @@ struct ProxiesView: View {
                 EmptyHint(icon: "point.3.connected.trianglepath.dotted",
                           text: "Группы и узлы появятся после подключения.")
             } else if state.groups.isEmpty {
-                EmptyHint(icon: "tray", text: "В профиле нет групп selector / urltest.")
+                EmptyHint(icon: "tray", text: "В профиле нет узлов, а группы selector / urltest отсутствуют.")
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {

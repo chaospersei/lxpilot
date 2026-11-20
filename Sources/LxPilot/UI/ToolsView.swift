@@ -88,6 +88,9 @@ struct ToolsView: View {
     private var networkSection: some View {
         Section("Сеть") {
             Toggle("Управлять входящими (mixed / TUN) автоматически", isOn: $state.settings.manageInbounds)
+            Toggle("Добавлять селектор узлов, если в профиле нет групп", isOn: Binding(
+                get: { state.settings.autoSelector },
+                set: { value in Task { await state.setAutoSelector(value) } }))
             LabeledContent("Порт mixed-прокси") {
                 TextField("", value: $state.settings.mixedPort, format: portFormat)
                     .frame(width: 90)
