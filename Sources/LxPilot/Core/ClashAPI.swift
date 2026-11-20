@@ -28,7 +28,7 @@ struct ClashConfigResponse: Decodable {
     }
 }
 
-struct ClashConnectionMeta: Decodable {
+struct ClashConnectionMeta: Decodable, Equatable {
     let network: String?
     let type: String?
     let sourceIP: String?
@@ -39,7 +39,7 @@ struct ClashConnectionMeta: Decodable {
     let processPath: String?
 }
 
-struct ClashConnection: Decodable, Identifiable {
+struct ClashConnection: Decodable, Identifiable, Equatable {
     let id: String
     let metadata: ClashConnectionMeta
     let upload: Int64?

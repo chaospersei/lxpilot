@@ -3,6 +3,7 @@ import AppKit
 
 struct LogsView: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var logStore: LogStore
     @State private var query = ""
     @State private var level = "all"
     @State private var follow = true
@@ -11,7 +12,7 @@ struct LogsView: View {
 
     private var rows: [LogLine] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return state.logs.filter { line in
+        return logStore.lines.filter { line in
             (level == "all" || line.level.hasPrefix(level.prefix(4)))
                 && (needle.isEmpty || line.text.lowercased().contains(needle))
         }
@@ -40,7 +41,7 @@ struct LogsView: View {
                 }
                 .help("Открыть журнал демона lxd (lxd.log)")
                 Button {
-                    state.clearLogs()
+                    logStore.clear()
                 } label: {
                     Image(systemName: "trash")
                 }
@@ -64,7 +65,7 @@ struct LogsView: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
                     }
-                    .onChange(of: state.logs.count) { _ in
+                    .onChange(of: logStore.lines.count) { _ in
                         if follow, let last = visible.last {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }

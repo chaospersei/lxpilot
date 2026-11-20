@@ -53,15 +53,22 @@ enum MenuBarRenderer {
     /// Scale floor: below this the bars stay low instead of idle noise filling the graph.
     private static let scaleFloor: Double = 64 * 1024
 
+    private static var cacheKey = ""
+    private static var cacheImage: NSImage?
+
+    /// The same picture is handed back while nothing visible changed: AppKit re-snapshots the status
+    /// item for every new image, which is the bulk of an idle app's CPU.
     static func image(up: Double, down: Double, history: [SpeedSample], showGraph: Bool) -> NSImage {
         let graphWidth = CGFloat(barCount) * (barWidth + barGap) - barGap
         let textX = AppIcon.traySize.width + iconGap
         let width = textX + textWidth + (showGraph ? 5 + graphWidth : 0)
         let recent = Array(history.suffix(barCount))
-        let ups = recent.map { $0.up }
-        let downs = recent.map { $0.down }
+        let ups = showGraph ? barHeights(recent.map { $0.up }) : []
+        let downs = showGraph ? barHeights(recent.map { $0.down }) : []
         let upText = compactSpeed(up)
         let downText = compactSpeed(down)
+        let key = "\(upText)|\(downText)|\(showGraph)|\(ups)|\(downs)"
+        if key == cacheKey, let cached = cacheImage { return cached }
 
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             let icon = AppIcon.traySize
@@ -86,23 +93,31 @@ enum MenuBarRenderer {
             return true
         }
         image.isTemplate = false
+        cacheKey = key
+        cacheImage = image
         return image
     }
 
-    private static func drawBars(_ values: [Double], originX: CGFloat, y: CGFloat) {
+    /// Bar heights in points, right-aligned: the newest sample is always the last bar, even with a
+    /// short history; 0 = empty slot.
+    private static func barHeights(_ values: [Double]) -> [Int] {
         let peak = max(values.max() ?? 0, scaleFloor)
-        // Right-align: the newest sample is always the last bar, even with a short history.
         let offset = barCount - values.count
-        for slot in 0..<barCount {
+        return (0..<barCount).map { slot in
+            let index = slot - offset
+            guard index >= 0, values[index] > 0 else { return 0 }
+            return max(1, Int((CGFloat(values[index] / peak) * rowHeight).rounded()))
+        }
+    }
+
+    private static func drawBars(_ heights: [Int], originX: CGFloat, y: CGFloat) {
+        for (slot, filled) in heights.enumerated() {
             let x = originX + CGFloat(slot) * (barWidth + barGap)
             NSColor.labelColor.withAlphaComponent(0.25).setFill()
             NSBezierPath(rect: NSRect(x: x, y: y, width: barWidth, height: rowHeight)).fill()
-
-            let index = slot - offset
-            guard index >= 0, values[index] > 0 else { continue }
-            let filled = max(1, (CGFloat(values[index] / peak) * rowHeight).rounded())
+            guard filled > 0 else { continue }
             NSColor.labelColor.setFill()
-            NSBezierPath(rect: NSRect(x: x, y: y, width: barWidth, height: min(filled, rowHeight))).fill()
+            NSBezierPath(rect: NSRect(x: x, y: y, width: barWidth, height: min(CGFloat(filled), rowHeight))).fill()
         }
     }
 

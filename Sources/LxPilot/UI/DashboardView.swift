@@ -57,21 +57,22 @@ struct FailureBanner: View {
 
 struct SpeedCard: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var live: LiveStats
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 18) {
                 CardTitle(icon: "speedometer", title: "Скорость сети")
-                Label(formatSpeed(state.upSpeed), systemImage: "arrow.up")
+                Label(formatSpeed(live.upSpeed), systemImage: "arrow.up")
                     .foregroundStyle(.orange)
-                Label(formatSpeed(state.downSpeed), systemImage: "arrow.down")
+                Label(formatSpeed(live.downSpeed), systemImage: "arrow.down")
                     .foregroundStyle(state.accent)
             }
             .font(.system(size: 12, weight: .medium, design: .monospaced))
             // X is the position in the 60-point window, not the sample id: ids keep growing across
             // sessions while the window is reseeded with 0…59, which would squash the plot to one edge.
             Chart {
-                ForEach(Array(state.speedHistory.enumerated()), id: \.element.id) { index, sample in
+                ForEach(Array(live.speedHistory.enumerated()), id: \.element.id) { index, sample in
                     AreaMark(x: .value("t", index), y: .value("Загрузка", sample.down))
                         .foregroundStyle(LinearGradient(
                             colors: [state.accent.opacity(0.35), state.accent.opacity(0.02)],
@@ -227,14 +228,14 @@ struct ModeCard: View {
 }
 
 struct TrafficCard: View {
-    @EnvironmentObject var state: AppState
+    @EnvironmentObject var live: LiveStats
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             CardTitle(icon: "chart.bar", title: "Трафик за сеанс")
-            statRow("Отдано", formatBytes(state.upTotal), "arrow.up")
-            statRow("Загружено", formatBytes(state.downTotal), "arrow.down")
-            statRow("Соединений", "\(state.connections.count)", "link")
+            statRow("Отдано", formatBytes(live.upTotal), "arrow.up")
+            statRow("Загружено", formatBytes(live.downTotal), "arrow.down")
+            statRow("Соединений", "\(live.connectionCount)", "link")
         }
         .frame(minHeight: 118, alignment: .topLeading)
         .card()
@@ -355,13 +356,14 @@ struct NetworkCard: View {
 
 struct CoreCard: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var live: LiveStats
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             CardTitle(icon: "cpu", title: "Ядро")
             row("Версия", state.coreVersion.isEmpty ? "не установлено" : state.coreVersion)
             row("Движок", state.settings.engine == .lxd ? "lxd" : "run")
-            row("Память", state.isRunning ? formatBytes(state.memory) : "—")
+            row("Память", state.isRunning ? formatBytes(live.memory) : "—")
         }
         .frame(minHeight: 118, alignment: .topLeading)
         .card()

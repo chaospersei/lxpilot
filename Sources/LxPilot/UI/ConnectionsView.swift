@@ -2,12 +2,13 @@ import SwiftUI
 
 struct ConnectionsView: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var live: LiveStats
     @State private var query = ""
 
     private var rows: [ClashConnection] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return state.connections }
-        return state.connections.filter { item in
+        guard !needle.isEmpty else { return live.connections }
+        return live.connections.filter { item in
             item.hostText.lowercased().contains(needle)
                 || item.chainText.lowercased().contains(needle)
                 || item.ruleText.lowercased().contains(needle)
@@ -26,7 +27,7 @@ struct ConnectionsView: View {
                 } label: {
                     Label("Закрыть все", systemImage: "xmark.circle")
                 }
-                .disabled(!state.isRunning || state.connections.isEmpty)
+                .disabled(!state.isRunning || live.connections.isEmpty)
             }
             .padding(.horizontal, 20)
             .padding(.top, 42)

@@ -13,7 +13,9 @@ final class AppState: ObservableObject {
     @Published var profiles: [Profile] = []
 
     // Navigation / messages
-    @Published var page: Page = .dashboard
+    @Published var page: Page = .dashboard {
+        didSet { if page == .logs { logStore.flush() } }
+    }
     @Published var alert: String?
 
     // Core
@@ -29,14 +31,11 @@ final class AppState: ObservableObject {
     @Published var proxyTypes: [String: String] = [:]
     @Published var delays: [String: Int] = [:]
     @Published var testingGroups: Set<String> = []
-    @Published var connections: [ClashConnection] = []
-    @Published var upSpeed: Double = 0
-    @Published var downSpeed: Double = 0
-    @Published var upTotal: Int64 = 0
-    @Published var downTotal: Int64 = 0
-    @Published var memory: Int64 = 0
-    @Published var speedHistory: [SpeedSample] = AppState.emptyHistory()
-    @Published var logs: [LogLine] = []
+    let live = LiveStats()
+    let logStore = LogStore()
+    /// False while the main window is closed, minimised or fully covered: the page content is not
+    /// built at all then, and the poll skips what only the window would show.
+    @Published private(set) var windowVisible = true
     @Published var mode = ""
     @Published var modeList: [String] = []
     @Published var ipInfo: IPInfo?
@@ -58,8 +57,9 @@ final class AppState: ObservableObject {
     private var lastUp: Int64 = -1
     private var lastDown: Int64 = -1
     private var lastPoll = Date()
-    private var sampleCounter = 60
-    private var logCounter = 0
+    private var logFlushScheduled = false
+    private var nextProxyRefresh = Date.distantPast
+    private var nextProbe = Date.distantFuture
     private var bootstrapped = false
 
     private static let proxyDirtyKey = "systemProxyDirty"
@@ -433,13 +433,13 @@ final class AppState: ObservableObject {
         pollFailures = 0
         lastUp = -1
         lastDown = -1
+        nextProxyRefresh = .distantPast
+        nextProbe = Date().addingTimeInterval(60)
         pollTask = Task { [weak self] in
-            var tick = 0
             while !Task.isCancelled {
                 guard let self else { return }
-                await self.pollOnce(tick: tick)
-                tick += 1
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await self.pollOnce()
+                try? await Task.sleep(nanoseconds: self.pollInterval)
             }
         }
         logTask = Task { [weak self] in
@@ -467,36 +467,70 @@ final class AppState: ObservableObject {
         proxyProbe = nil
         autoTestedGroups = []
         groups = []
-        connections = []
-        upSpeed = 0
-        downSpeed = 0
-        memory = 0
         mode = ""
         modeList = []
         testingGroups = []
-        speedHistory = AppState.emptyHistory()
+        live.reset()
     }
 
-    private func pollOnce(tick: Int) async {
+    /// Once a second normally; every five when nothing shows the numbers (window hidden, icon-only menu bar).
+    private var pollInterval: UInt64 {
+        !windowVisible && settings.menuBarStyle == .icon ? 5_000_000_000 : 1_000_000_000
+    }
+
+    func setWindowVisible(_ visible: Bool) {
+        guard windowVisible != visible else { return }
+        windowVisible = visible
+        guard visible, isRunning else { return }
+        if page == .logs { logStore.flush() }
+        Task { await pollOnce(force: true) }
+    }
+
+    private func pollOnce(force: Bool = false) async {
         guard isRunning else { return }
+        let showsWindow = windowVisible
+        let needHistory = showsWindow || settings.menuBarStyle == .speedGraph
         do {
-            let snapshot = try await clash.connections()
+            let up: Int64
+            let down: Int64
+            let count: Int
+            var memory: Int64?
+            var list: [ClashConnection]?
+            if let lxd, !showsWindow {
+                // Nobody looks at the list: two totals from the daemon instead of every connection.
+                let stats = try await lxd.stats()
+                up = stats.uplinkTotal
+                down = stats.downlinkTotal
+                count = stats.connections
+            } else {
+                let snapshot = try await clash.connections()
+                up = snapshot.uploadTotal
+                down = snapshot.downloadTotal
+                let items = snapshot.connections ?? []
+                count = items.count
+                list = items
+                memory = snapshot.memory
+            }
             let now = Date()
             let elapsed = max(now.timeIntervalSince(lastPoll), 0.2)
             lastPoll = now
+            var upSpeed = 0.0
+            var downSpeed = 0.0
             if lastUp >= 0 {
-                upSpeed = Double(max(snapshot.uploadTotal - lastUp, 0)) / elapsed
-                downSpeed = Double(max(snapshot.downloadTotal - lastDown, 0)) / elapsed
+                upSpeed = Double(max(up - lastUp, 0)) / elapsed
+                downSpeed = Double(max(down - lastDown, 0)) / elapsed
             }
-            lastUp = snapshot.uploadTotal
-            lastDown = snapshot.downloadTotal
-            upTotal = snapshot.uploadTotal
-            downTotal = snapshot.downloadTotal
-            memory = snapshot.memory ?? 0
-            connections = snapshot.connections ?? []
-            sampleCounter += 1
-            speedHistory.append(SpeedSample(id: sampleCounter, up: upSpeed, down: downSpeed))
-            if speedHistory.count > 60 { speedHistory.removeFirst(speedHistory.count - 60) }
+            lastUp = up
+            lastDown = down
+            // Publish at display granularity: a change nobody can read must not redraw anything.
+            if displayed(upSpeed) != displayed(live.upSpeed) { live.upSpeed = upSpeed }
+            if displayed(downSpeed) != displayed(live.downSpeed) { live.downSpeed = downSpeed }
+            if live.upTotal != up { live.upTotal = up }
+            if live.downTotal != down { live.downTotal = down }
+            if let memory, live.memory != memory { live.memory = memory }
+            if live.connectionCount != count { live.connectionCount = count }
+            if let list, live.connections != list { live.connections = list }
+            if needHistory { live.appendSample(up: upSpeed, down: downSpeed) }
             pollFailures = 0
         } catch {
             pollFailures += 1
@@ -512,13 +546,20 @@ final class AppState: ObservableObject {
                 return
             }
         }
-        if tick % 3 == 0 {
+        let now = Date()
+        if force || now >= nextProxyRefresh {
+            nextProxyRefresh = now.addingTimeInterval(3)
             await refreshProxies()
             await refreshMode()
         }
-        if tick % 60 == 30 {
+        if now >= nextProbe {
+            nextProbe = now.addingTimeInterval(60)
             await probeProxy()
         }
+    }
+
+    private func displayed(_ speed: Double) -> String {
+        formatSpeed(speed) + MenuBarRenderer.compactSpeed(speed)
     }
 
     func refreshProxies() async {
@@ -568,13 +609,20 @@ final class AppState: ObservableObject {
         if list != modeList { modeList = list }
     }
 
+    /// Lines are buffered and shown at most twice a second, and only while the Logs page is on screen.
     private func appendLog(level: String, text: String) {
-        logCounter += 1
-        logs.append(LogLine(id: logCounter, time: Date(), level: level.lowercased(), text: stripANSI(text)))
-        if logs.count > 2000 { logs.removeFirst(logs.count - 1500) }
+        logStore.append(level: level, text: text)
+        guard !logFlushScheduled else { return }
+        logFlushScheduled = true
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self else { return }
+            self.logFlushScheduled = false
+            if self.page == .logs, self.windowVisible { self.logStore.flush() }
+        }
     }
 
-    func clearLogs() { logs = [] }
+    func clearLogs() { logStore.clear() }
 
     // MARK: - Proxies
 
@@ -777,9 +825,6 @@ final class AppState: ObservableObject {
 
     // MARK: - Persistence
 
-    private static func emptyHistory() -> [SpeedSample] {
-        (0..<60).map { SpeedSample(id: $0, up: 0, down: 0) }
-    }
 
     private static func loadSettings() -> AppSettings {
         guard let data = try? Data(contentsOf: Paths.settingsFile),

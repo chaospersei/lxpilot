@@ -93,8 +93,14 @@ struct RootView: View {
         HStack(spacing: 0) {
             NavigationRail()
             ZStack(alignment: .bottomTrailing) {
-                pageContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // A hidden window still re-evaluates its views on every state change; an empty page costs nothing.
+                if state.windowVisible {
+                    pageContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 if showsStartButton {
                     StartButton()
                         .padding(22)

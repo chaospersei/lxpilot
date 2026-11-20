@@ -8,6 +8,12 @@ struct LxdStatus {
     let lastError: String
 }
 
+struct LxdStats {
+    let uplinkTotal: Int64
+    let downlinkTotal: Int64
+    let connections: Int
+}
+
 struct LxdClient {
     let port: Int
     let secret: String
@@ -62,6 +68,22 @@ struct LxdClient {
             default: throw AppError("lxd /admin/apply: HTTP \(code)\n\(stripANSI(text))")
             }
         }
+    }
+
+    /// GET /admin/stats: traffic totals and the connection count without the connection list.
+    func stats() async throws -> LxdStats {
+        let (code, data) = try await send("GET", "/admin/stats", timeout: 3)
+        guard code == 200, let object = (try? JSONSerialization.jsonObject(with: data)) as? JSON else {
+            throw AppError("lxd /admin/stats: HTTP \(code)")
+        }
+        func int64(_ key: String) -> Int64 { (object[key] as? NSNumber)?.int64Value ?? 0 }
+        let connections: Int
+        switch object["connections"] {
+        case let number as NSNumber: connections = number.intValue
+        case let list as [Any]: connections = list.count
+        default: connections = 0
+        }
+        return LxdStats(uplinkTotal: int64("uplink_total"), downlinkTotal: int64("downlink_total"), connections: connections)
     }
 
     func start() async throws {

@@ -10,6 +10,8 @@ struct LxPilotApp: App {
         Window("LxPilot", id: "main") {
             RootView()
                 .environmentObject(state)
+                .environmentObject(state.live)
+                .environmentObject(state.logStore)
                 .preferredColorScheme(state.settings.appearance.colorScheme)
                 .task { await state.bootstrap() }
         }
@@ -20,17 +22,29 @@ struct LxPilotApp: App {
             MenuBarContent()
                 .environmentObject(state)
         } label: {
-            switch state.settings.menuBarStyle {
-            case .icon:
-                Image(systemName: state.isRunning ? "shield.lefthalf.filled" : "shield")
-            case .speed, .speedGraph:
-                // Redrawn once a second together with the speed samples.
-                Image(nsImage: MenuBarRenderer.image(
-                    up: state.upSpeed,
-                    down: state.downSpeed,
-                    history: state.speedHistory,
-                    showGraph: state.settings.menuBarStyle == .speedGraph))
-            }
+            MenuBarLabel()
+                .environmentObject(state)
+                .environmentObject(state.live)
+        }
+    }
+}
+
+/// Observes LiveStats directly, so the once-a-second numbers reach the status item without the
+/// whole App body. One Image: MenuBarExtra shows only the first image of a composite label.
+struct MenuBarLabel: View {
+    @EnvironmentObject var state: AppState
+    @EnvironmentObject var live: LiveStats
+
+    var body: some View {
+        switch state.settings.menuBarStyle {
+        case .icon:
+            Image(systemName: state.isRunning ? "shield.lefthalf.filled" : "shield")
+        case .speed, .speedGraph:
+            Image(nsImage: MenuBarRenderer.image(
+                up: live.upSpeed,
+                down: live.downSpeed,
+                history: live.speedHistory,
+                showGraph: state.settings.menuBarStyle == .speedGraph))
         }
     }
 }
@@ -40,6 +54,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var termSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let names: [Notification.Name] = [
+            NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification, NSWindow.didBecomeKeyNotification,
+        ]
+        for name in names {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                // After the notification settles: willClose fires while the window is still visible.
+                Task { @MainActor in AppDelegate.updateWindowVisibility() }
+            }
+        }
         // `kill <pid>` would skip applicationWillTerminate and leave the core and the system proxy behind.
         signal(SIGTERM, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
@@ -57,6 +81,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false   // keeps running in the menu bar, like FlClash in the tray
+    }
+
+    /// The status item owns a window as well; only windows that can become main count as "the window".
+    static func updateWindowVisibility() {
+        let visible = NSApp.windows.contains { window in
+            window.canBecomeMain && window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
+        }
+        AppState.shared.setWindowVisible(visible)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
