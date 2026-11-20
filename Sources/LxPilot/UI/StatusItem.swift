@@ -45,7 +45,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             symbolShown = ""
             let image = MenuBarRenderer.image(
                 up: state.live.upSpeed, down: state.live.downSpeed,
-                history: state.live.speedHistory, showGraph: state.settings.menuBarStyle == .speedGraph)
+                history: state.live.speedHistory, showGraph: state.settings.menuBarStyle == .speedGraph, linked: state.isRunning)
             // The renderer hands back the same object while nothing changed; a new one costs a status bar snapshot.
             if button.image !== image { button.image = image }
         }

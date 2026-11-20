@@ -13,58 +13,49 @@ enum AppIcon {
         return NSImage(contentsOf: source)
     }()
 
-    /// The tile on the 1024 canvas without the margin of the macOS icon grid (unit coordinates).
-    /// Keep in sync with `inset` in Tools/make-icon.swift.
-    private static let rocketBounds = CGRect(x: 80.0 / 1024, y: 80.0 / 1024, width: 864.0 / 1024, height: 864.0 / 1024)
     static let traySize = NSSize(width: 18, height: 18)
 
     /// The app glyph, vector: two nodes on either side of a wall, a link line through its gap when
-    /// `linked`. Template image, so it takes the menu bar or accent colour. Same geometry as
-    /// Tools/make-glyph-icon.swift (1024 design units).
+    /// `linked`. Same geometry as Tools/make-glyph-icon.swift (1024 design units), drawn into `rect`
+    /// with a flipped (top-left origin) context.
+    static func drawGlyph(in rect: CGRect, linked: Bool, color: CGColor, ctx: CGContext) {
+        let k = rect.width / 1024
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * k, y: rect.minY + y * k) }
+        func rr(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGPath {
+            CGPath(roundedRect: CGRect(x: rect.minX + x * k, y: rect.minY + y * k, width: w * k, height: h * k),
+                   cornerWidth: 40 * k, cornerHeight: 40 * k, transform: nil)
+        }
+        ctx.saveGState()
+        ctx.setFillColor(color)
+        ctx.setStrokeColor(color)
+        if linked {
+            ctx.setLineWidth(72 * k)
+            ctx.setLineCap(.round)
+            ctx.move(to: pt(188, 512)); ctx.addLine(to: pt(836, 512)); ctx.strokePath()
+        }
+        ctx.addPath(rr(436, 130, 152, 318)); ctx.fillPath()
+        ctx.addPath(rr(436, 576, 152, 318)); ctx.fillPath()
+        for x in [188.0, 836.0] as [CGFloat] {
+            ctx.addPath(CGPath(ellipseIn: CGRect(x: rect.minX + (x - 140) * k, y: rect.minY + 372 * k, width: 280 * k, height: 280 * k), transform: nil))
+            ctx.fillPath()
+        }
+        ctx.restoreGState()
+    }
+
+    /// Template image of the glyph: takes the menu bar or accent colour.
     static func glyph(linked: Bool, size: CGFloat) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            let k = rect.width / 1024
-            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * k, y: y * k) }
-            func rr(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGPath {
-                CGPath(roundedRect: CGRect(x: x * k, y: y * k, width: w * k, height: h * k), cornerWidth: 40 * k, cornerHeight: 40 * k, transform: nil)
-            }
-            ctx.setFillColor(.black)
-            ctx.setStrokeColor(.black)
-            if linked {
-                ctx.setLineWidth(72 * k)
-                ctx.setLineCap(.round)
-                ctx.move(to: pt(188, 512)); ctx.addLine(to: pt(836, 512)); ctx.strokePath()
-            }
-            ctx.addPath(rr(436, 130, 152, 318)); ctx.fillPath()
-            ctx.addPath(rr(436, 576, 152, 318)); ctx.fillPath()
-            for x in [188.0, 836.0] as [CGFloat] {
-                ctx.addPath(CGPath(ellipseIn: CGRect(x: (x - 140) * k, y: 372 * k, width: 280 * k, height: 280 * k), transform: nil))
-                ctx.fillPath()
-            }
+            drawGlyph(in: rect, linked: linked, color: .black, ctx: ctx)
             return true
         }
         image.isTemplate = true
         return image
     }
-
-    /// Menu bar version: the tile, 18 pt. Not a template, so it keeps its colours next to the
-    /// tinted speed text.
-    static let tray: NSImage = {
-        guard let full else {
-            return NSImage(systemSymbolName: "paperplane.fill", accessibilityDescription: nil) ?? NSImage(size: traySize)
-        }
-        let crop = NSRect(x: rocketBounds.minX * full.size.width, y: rocketBounds.minY * full.size.height,
-                          width: rocketBounds.width * full.size.width, height: rocketBounds.height * full.size.height)
-        return NSImage(size: traySize, flipped: false) { rect in
-            full.draw(in: rect, from: crop, operation: .sourceOver, fraction: 1)
-            return true
-        }
-    }()
 }
 
-/// Draws the menu bar item: the coloured app icon, two lines of speed (upload on top, download
-/// below) and, optionally, two rows of mini bar graphs with the recent history.
+/// Draws the menu bar item: the app glyph (link line while connected), two lines of speed (upload
+/// on top, download below) and, optionally, two rows of mini bar graphs with the recent history.
 ///
 /// MenuBarExtra shows only the first Image of a composite label, so everything is one NSImage.
 /// It cannot be a template (that would flatten the icon to one colour), so text and bars use
@@ -88,7 +79,7 @@ enum MenuBarRenderer {
 
     /// The same picture is handed back while nothing visible changed: AppKit re-snapshots the status
     /// item for every new image, which is the bulk of an idle app's CPU.
-    static func image(up: Double, down: Double, history: [SpeedSample], showGraph: Bool) -> NSImage {
+    static func image(up: Double, down: Double, history: [SpeedSample], showGraph: Bool, linked: Bool) -> NSImage {
         let graphWidth = CGFloat(barCount) * (barWidth + barGap) - barGap
         let textX = AppIcon.traySize.width + iconGap
         let width = textX + textWidth + (showGraph ? 5 + graphWidth : 0)
@@ -97,13 +88,20 @@ enum MenuBarRenderer {
         let downs = showGraph ? barHeights(recent.map { $0.down }) : []
         let upText = compactSpeed(up)
         let downText = compactSpeed(down)
-        let key = "\(upText)|\(downText)|\(showGraph)|\(ups)|\(downs)"
+        let key = "\(upText)|\(downText)|\(showGraph)|\(linked)|\(ups)|\(downs)"
         if key == cacheKey, let cached = cacheImage { return cached }
 
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             let icon = AppIcon.traySize
-            AppIcon.tray.draw(in: NSRect(x: 0, y: (height - icon.height) / 2, width: icon.width, height: icon.height),
-                              from: .zero, operation: .sourceOver, fraction: 1)
+            if let cg = NSGraphicsContext.current?.cgContext {
+                // Same appearance-aware colour as the text: the handler runs with the menu bar's appearance.
+                cg.saveGState()
+                cg.translateBy(x: 0, y: height)   // the glyph is designed top-down; this handler is bottom-up
+                cg.scaleBy(x: 1, y: -1)
+                AppIcon.drawGlyph(in: CGRect(x: 0, y: (height - icon.height) / 2, width: icon.width, height: icon.height),
+                                  linked: linked, color: NSColor.labelColor.cgColor, ctx: cg)
+                cg.restoreGState()
+            }
 
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .right
