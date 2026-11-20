@@ -154,7 +154,7 @@ struct ToolsView: View {
                 TextField("", text: $bypassText)
                     .frame(width: 320)
                     .onAppear { bypassText = state.settings.bypassDomains.joined(separator: ", ") }
-                    .onChange(of: bypassText) { value in
+                    .onChange(of: bypassText) { _, value in
                         state.settings.bypassDomains = value
                             .split(separator: ",")
                             .map { $0.trimmingCharacters(in: .whitespaces) }

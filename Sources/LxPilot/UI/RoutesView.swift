@@ -221,9 +221,9 @@ struct NameField: View {
             .frame(width: 240)
             .focused($focused)
             .onSubmit(commit)
-            .onChange(of: focused) { active in if !active { commit() } }
+            .onChange(of: focused) { _, active in if !active { commit() } }
             .onAppear { draft = text }
-            .onChange(of: text) { value in if !focused { draft = value } }
+            .onChange(of: text) { _, value in if !focused { draft = value } }
     }
 
     private func commit() {
@@ -258,9 +258,9 @@ struct RuleRow: View {
                     .font(.system(size: 12, design: .monospaced))
                     .focused($focused)
                     .onSubmit(commit)
-                    .onChange(of: focused) { active in if !active { commit() } }
+                    .onChange(of: focused) { _, active in if !active { commit() } }
                     .onAppear { draft = rule.values.joined(separator: ", ") }
-                    .onChange(of: rule.values) { values in if !focused { draft = values.joined(separator: ", ") } }
+                    .onChange(of: rule.values) { _, values in if !focused { draft = values.joined(separator: ", ") } }
             }
             Image(systemName: "arrow.right")
                 .foregroundStyle(.secondary)
@@ -506,8 +506,8 @@ struct ProfileRulesView: View {
         .card()
         .padding(.bottom, 20)
         .onAppear(perform: load)
-        .onChange(of: state.currentProfile?.id) { _ in load() }
-        .onChange(of: state.currentProfile?.updatedAt) { _ in load() }
+        .onChange(of: state.currentProfile?.id) { _, _ in load() }
+        .onChange(of: state.currentProfile?.updatedAt) { _, _ in load() }
     }
 
     private func load() {

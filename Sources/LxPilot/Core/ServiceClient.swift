@@ -114,20 +114,15 @@ struct ClientIdentity {
     private static var p12: URL { Paths.serviceDir.appendingPathComponent("client.p12") }
     private static var certFile: URL { Paths.serviceDir.appendingPathComponent("client-cert.pem") }
     private static var keyFile: URL { Paths.serviceDir.appendingPathComponent("client-key.pem") }
-    private static var keychainFile: URL { Paths.serviceDir.appendingPathComponent("service.keychain-db") }
 
     static var exists: Bool { FileManager.default.fileExists(atPath: p12.path) }
 
     static func load(password: String) throws -> ClientIdentity? {
         guard FileManager.default.fileExists(atPath: p12.path) else { return nil }
         let pem = (try? String(contentsOf: certFile, encoding: .utf8)) ?? ""
-        if #available(macOS 15, *) {
-            return ClientIdentity(identity: try importToMemory(password: password), certificatePEM: pem)
-        }
-        return ClientIdentity(identity: try loadFromKeychain(password: password), certificatePEM: pem)
+        return ClientIdentity(identity: try importToMemory(password: password), certificatePEM: pem)
     }
 
-    @available(macOS 15, *)
     private static func importToMemory(password: String) throws -> SecIdentity {
         let data = try Data(contentsOf: p12)
         var items: CFArray?
@@ -138,26 +133,6 @@ struct ClientIdentity {
             throw AppError("Клиентский сертификат службы не читается (ошибка \(status)). Выполните сопряжение заново.")
         }
         return raw as! SecIdentity
-    }
-
-    static func loadFromKeychain(password: String) throws -> SecIdentity {
-        var keychain: SecKeychain?
-        guard SecKeychainOpen(keychainFile.path, &keychain) == errSecSuccess, let keychain else {
-            throw AppError("Хранилище сертификата службы не открывается. Выполните сопряжение заново.")
-        }
-        SecKeychainUnlock(keychain, UInt32(password.utf8.count), password, true)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassIdentity,
-            kSecMatchSearchList as String: [keychain],
-            kSecReturnRef as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let result else {
-            throw AppError("Клиентский сертификат службы не найден в хранилище (ошибка \(status)). Выполните сопряжение заново.")
-        }
-        return result as! SecIdentity
     }
 
     static func generate(password: String) async throws -> ClientIdentity {
@@ -178,23 +153,8 @@ struct ClientIdentity {
         for file in [keyFile, certFile, p12] {
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         }
-        if #unavailable(macOS 15) {
-            try await importIntoKeychain(password: password)
-        }
         guard let loaded = try load(password: password) else { throw AppError("Сертификат создан, но файл не найден.") }
         return loaded
-    }
-
-    /// macOS 13–14: a fresh file keychain holding only this identity; the key is marked accessible
-    /// to any application, so a rebuilt (re-signed) binary does not trigger the keychain prompt.
-    static func importIntoKeychain(password: String) async throws {
-        try? FileManager.default.removeItem(at: keychainFile)
-        let create = await Shell.run("/usr/bin/security", ["create-keychain", "-p", password, keychainFile.path])
-        guard create.ok else { throw AppError("Не удалось создать хранилище сертификата:\n\(create.combined.suffix(300))") }
-        _ = await Shell.run("/usr/bin/security", ["set-keychain-settings", keychainFile.path])   // never auto-lock
-        let imported = await Shell.run("/usr/bin/security", ["import", p12.path, "-k", keychainFile.path, "-P", password, "-A", "-T", "/usr/bin/security"])
-        guard imported.ok else { throw AppError("Не удалось импортировать сертификат в хранилище:\n\(imported.combined.suffix(300))") }
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keychainFile.path)
     }
 }
 

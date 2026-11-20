@@ -82,6 +82,7 @@ struct ConnectionsView: View {
                     }
                     .width(28)
                 }
+                .scrollContentBackground(.hidden)
             }
         }
     }

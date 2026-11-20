@@ -1,6 +1,7 @@
 import SwiftUI
 
-// MARK: - Shared look (FlClash-like: tonal rounded cards on a quiet surface)
+// MARK: - Shared look (Liquid Glass: the window is a translucent material, the rail and the start
+// button float as glass, cards are quieter material surfaces so glass is not stacked on glass)
 
 struct CardStyle: ViewModifier {
     @EnvironmentObject var state: AppState
@@ -8,13 +9,13 @@ struct CardStyle: ViewModifier {
     var padding: CGFloat = 16
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         return content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(shape.fill(state.accent.opacity(selected ? 0.20 : 0.06)))
-            .background(shape.fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(shape.stroke(selected ? state.accent.opacity(0.7) : Color.primary.opacity(0.06), lineWidth: 1))
+            .background(shape.fill(state.accent.opacity(selected ? 0.18 : 0.04)))
+            .background(.thinMaterial, in: shape)
+            .overlay(shape.stroke(selected ? state.accent.opacity(0.7) : Color.primary.opacity(0.08), lineWidth: 1))
     }
 }
 
@@ -92,6 +93,8 @@ struct RootView: View {
     var body: some View {
         HStack(spacing: 0) {
             NavigationRail()
+                .padding(.leading, 10)
+                .padding(.vertical, 10)
             ZStack(alignment: .bottomTrailing) {
                 // A hidden window still re-evaluates its views on every state change; an empty page costs nothing.
                 if state.windowVisible {
@@ -149,7 +152,7 @@ struct NavigationRail: View {
             Image(systemName: "shield.lefthalf.filled")
                 .font(.system(size: 24))
                 .foregroundStyle(state.accent)
-                .padding(.top, 44)
+                .padding(.top, 36)   // below the traffic lights of the hidden title bar
                 .padding(.bottom, 14)
             ForEach(Page.allCases) { page in
                 RailButton(page: page)
@@ -163,7 +166,7 @@ struct NavigationRail: View {
         }
         .frame(width: 92)
         .frame(maxHeight: .infinity)
-        .background(state.accent.opacity(0.05))
+        .glassEffect(.regular, in: .rect(cornerRadius: 26))
     }
 
     private var statusColor: Color {
@@ -239,8 +242,8 @@ struct StartButton: View {
             .padding(.horizontal, state.isRunning ? 18 : 20)
             .frame(height: 54)
             .frame(minWidth: 54)
-            .background(Capsule().fill(state.accent))
-            .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+            .glassEffect(.regular.tint(state.accent).interactive(), in: .capsule)
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

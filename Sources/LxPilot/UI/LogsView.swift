@@ -65,7 +65,7 @@ struct LogsView: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
                     }
-                    .onChange(of: logStore.lines.count) { _ in
+                    .onChange(of: logStore.lines.count) { _, _ in
                         if follow, let last = visible.last {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }

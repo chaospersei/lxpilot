@@ -10,6 +10,7 @@ struct LxPilotApp: App {
         Window("LxPilot", id: "main") {
             RootView()
                 .background(MainWindowAccessor())
+                .containerBackground(.ultraThinMaterial, for: .window)
                 .environmentObject(state)
                 .environmentObject(state.live)
                 .environmentObject(state.logStore)
