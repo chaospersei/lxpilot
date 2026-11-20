@@ -145,8 +145,18 @@ func formatBytes(_ value: Int64) -> String {
     return String(format: "%.1f", x) + " " + units[i]
 }
 
+/// "532 B/s", "7.3 KB/s", "742 KB/s", "9.8 MB/s", "125 MB/s": tenths only while the number is
+/// below 10, where they still carry information.
 func formatSpeed(_ bytesPerSecond: Double) -> String {
-    formatBytes(Int64(max(bytesPerSecond, 0))) + "/s"
+    let units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"]
+    var x = max(bytesPerSecond, 0)
+    var i = 0
+    while x >= 1000 && i < units.count - 1 {
+        x /= 1024
+        i += 1
+    }
+    if i == 0 { return "\(Int(x)) B/s" }
+    return (x < 10 ? String(format: "%.1f", x) : String(format: "%.0f", x)) + " " + units[i]
 }
 
 func formatDuration(_ interval: TimeInterval) -> String {

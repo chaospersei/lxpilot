@@ -106,13 +106,15 @@ enum MenuBarRenderer {
         }
     }
 
-    /// Short fixed-width form for the menu bar: "0 KB/s", "742 KB/s", "12.4 MB/s", "125 MB/s".
+    /// Short fixed-width form for the menu bar: "0 KB/s", "7.3 KB/s", "742 KB/s", "9.8 MB/s", "125 MB/s".
+    /// Tenths only below 10; idle traffic is reported in KB/s rather than bytes to keep the column calm.
     static func compactSpeed(_ bytesPerSecond: Double) -> String {
         let kb = max(bytesPerSecond, 0) / 1024
-        if kb < 1000 { return "\(Int(kb.rounded())) KB/s" }
+        if kb == 0 { return "0 KB/s" }
+        if kb < 1000 { return (kb < 10 ? String(format: "%.1f", kb) : String(format: "%.0f", kb)) + " KB/s" }
         let mb = kb / 1024
-        if mb < 100 { return String(format: "%.1f", mb) + " MB/s" }
-        if mb < 1000 { return String(format: "%.0f", mb) + " MB/s" }
-        return String(format: "%.2f", mb / 1024) + " GB/s"
+        if mb < 1000 { return (mb < 10 ? String(format: "%.1f", mb) : String(format: "%.0f", mb)) + " MB/s" }
+        let gb = mb / 1024
+        return (gb < 10 ? String(format: "%.1f", gb) : String(format: "%.0f", gb)) + " GB/s"
     }
 }
