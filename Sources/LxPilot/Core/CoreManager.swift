@@ -41,6 +41,19 @@ final class CoreManager {
         let root = settings.tunEnabled
         let clash = ClashAPI(port: settings.clashPort, secret: settings.clashSecret)
         let lxd = LxdClient(port: settings.lxdPort, secret: settings.lxdSecret)
+        // A core that was just stopped (a root one in particular: the watchdog polls once a second and
+        // the daemon shuts down in stages) may still hold the ports for a few seconds; wait it out.
+        var ports = [settings.clashPort, settings.mixedPort]
+        if settings.engine == .lxd { ports.append(settings.lxdPort) }
+        var busy = ports.filter(Ports.inUse)
+        let release = Date().addingTimeInterval(12)
+        while !busy.isEmpty, Date() < release {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            busy = ports.filter(Ports.inUse)
+        }
+        if let port = busy.first, port == settings.mixedPort {
+            throw AppError("Порт \(port) для входящих соединений уже занят другой программой. Освободите его или смените порт в «Инструментах».")
+        }
         if await clash.reachable() {
             throw AppError("Порт Clash API \(settings.clashPort) уже занят другим экземпляром ядра. Остановите его или смените порт в «Инструментах».")
         }
@@ -113,12 +126,20 @@ final class CoreManager {
         expectingExit = true
         if runningAsRoot {
             FileManager.default.createFile(atPath: Paths.stopFlag.path, contents: nil)
-            if let clash = activeClash {
+            // The watchdog sees the flag within a second and sends TERM; wait for the pid to vanish
+            // (the Clash API closes before the inbounds do, so it alone is not a sign the ports are free).
+            if let pid = rootPid {
+                for _ in 0..<60 {
+                    if !Ports.processExists(pid) { break }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            } else if let clash = activeClash {
                 for _ in 0..<40 {
                     if !(await clash.isAlive()) { break }
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
             }
+            try? FileManager.default.removeItem(at: Paths.rootPid)
         } else if let process {
             if process.isRunning { process.terminate() }
             for _ in 0..<25 {
@@ -212,6 +233,7 @@ final class CoreManager {
 
     private func launchAsRoot(_ arguments: [String]) async throws {
         try? FileManager.default.removeItem(at: Paths.stopFlag)
+        try? FileManager.default.removeItem(at: Paths.rootPid)
         let q = Shell.quote
         // A root process must not execute a user-writable binary, so the core is first copied to a
         // root-owned location with its own `--service=copy` (available in recent lx releases).
@@ -221,6 +243,7 @@ final class CoreManager {
         BIN=\(q(Paths.coreBinary.path))
         RUNTIME=\(q(Paths.runtimeDir.path))
         FLAG=\(q(Paths.stopFlag.path))
+        PIDFILE=\(q(Paths.rootPid.path))
         LOG=\(q(Paths.rootLog.path))
         APP_PID=\(ProcessInfo.processInfo.processIdentifier)
         EXEC_DIR=/Library/PrivilegedHelperTools/LxPilot
@@ -233,6 +256,7 @@ final class CoreManager {
         cd "$RUNTIME" || exit 1
         "$RB" \(arguments.map(q).joined(separator: " ")) >> "$LOG" 2>&1 &
         P=$!
+        echo "$P" > "$PIDFILE"
         while kill -0 "$APP_PID" 2>/dev/null && [ ! -e "$FLAG" ] && kill -0 "$P" 2>/dev/null; do
           sleep 1
         done
@@ -243,7 +267,7 @@ final class CoreManager {
           i=$((i+1))
         done
         kill -9 "$P" 2>/dev/null
-        rm -f "$FLAG"
+        rm -f "$FLAG" "$PIDFILE"
         """
         try script.write(to: Paths.rootScript, atomically: true, encoding: .utf8)
         let result = await Shell.runScriptAsAdmin(
@@ -255,6 +279,13 @@ final class CoreManager {
             }
             throw AppError("Не удалось запустить ядро с правами администратора: \(result.combined)")
         }
+    }
+
+    /// Pid of the root core, written by root-launch.sh; nil before it starts or after it is gone.
+    private var rootPid: Int32? {
+        guard let text = try? String(contentsOf: Paths.rootPid, encoding: .utf8),
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return nil }
+        return pid
     }
 
     private func failureDetails() async -> String {

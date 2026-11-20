@@ -31,6 +31,7 @@ enum Paths {
     static let rootScript = runtimeDir.appendingPathComponent("root-launch.sh")
     static let rootLog = runtimeDir.appendingPathComponent("root-core.log")
     static let stopFlag = runtimeDir.appendingPathComponent("stop.flag")
+    static let rootPid = runtimeDir.appendingPathComponent("root-core.pid")
     static let settingsFile = appSupport.appendingPathComponent("settings.json")
     static let profilesIndex = appSupport.appendingPathComponent("profiles.json")
 
@@ -176,4 +177,30 @@ func plural(_ n: Int, _ one: String, _ few: String, _ many: String) -> String {
     if m10 == 1 && m100 != 11 { return one }
     if (2...4).contains(m10) && !(12...14).contains(m100) { return few }
     return many
+}
+
+enum Ports {
+    /// True when something accepts TCP connections on 127.0.0.1:port. A loopback connect answers at
+    /// once, so this is cheap enough to poll.
+    static func inUse(_ port: Int) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(UInt16(port)).bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let result = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        // A reset means a listener exists but is swamped or closing: still not ours to take.
+        return result == 0 || errno == ECONNRESET
+    }
+
+    /// Whether a process with this pid exists, even one we may not signal (a root core): ESRCH is the
+    /// only answer that means "gone".
+    static func processExists(_ pid: Int32) -> Bool {
+        kill(pid, 0) == 0 || errno == EPERM
+    }
 }

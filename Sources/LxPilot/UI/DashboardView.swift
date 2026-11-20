@@ -289,7 +289,9 @@ struct SystemProxyCard: View {
                     .labelsHidden()
                     .disabled(state.isBusy)
             }
-            Text("HTTP/HTTPS/SOCKS-прокси macOS указывает на 127.0.0.1:\(String(state.settings.mixedPort)). Снимается при отключении и выходе.")
+            Text(state.settings.tunEnabled
+                 ? "При включённом TUN не нужен: весь трафик уже идёт через ядро. Выключается вместе с включением TUN."
+                 : "HTTP/HTTPS/SOCKS-прокси macOS указывает на 127.0.0.1:\(String(state.settings.mixedPort)). Снимается при отключении и выходе.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

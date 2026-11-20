@@ -389,6 +389,12 @@ final class AppState: ObservableObject {
     func setTun(_ enabled: Bool) async {
         guard settings.tunEnabled != enabled else { return }
         settings.tunEnabled = enabled
+        // With TUN the whole Mac already goes through the core; a system proxy on top is redundant and
+        // would outlive a crash of the root core, so it is switched off together with the toggle.
+        if enabled, settings.systemProxyEnabled {
+            settings.systemProxyEnabled = false
+            if isRunning { await applySystemProxy(false) }
+        }
         if isRunning { await restart() }      // privilege level changes → the process must be relaunched
     }
 
