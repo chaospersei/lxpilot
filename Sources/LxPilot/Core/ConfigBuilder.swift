@@ -13,12 +13,14 @@ enum ConfigBuilder {
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 
+    /// Everything a rule or a group may point at: `outbounds` plus `endpoints` (WireGuard / AmneziaWG /
+    /// Tailscale live there since sing-box 1.11 but are addressed by tag like any outbound).
+    static func outboundsAndEndpoints(_ config: JSON) -> [JSON] {
+        (config["outbounds"] as? [JSON] ?? []) + (config["endpoints"] as? [JSON] ?? [])
+    }
+
     static func nodeCount(_ config: JSON) -> Int {
-        let outbounds = (config["outbounds"] as? [JSON] ?? []).filter {
-            !utilityTypes.contains(($0["type"] as? String) ?? "")
-        }
-        let endpoints = config["endpoints"] as? [JSON] ?? []
-        return outbounds.count + endpoints.count
+        outboundsAndEndpoints(config).filter { !utilityTypes.contains(($0["type"] as? String) ?? "") }.count
     }
 
     /// A complete config around a list of nodes: selector + urltest, sniffing, DNS, clash modes.
@@ -139,13 +141,14 @@ extension ConfigBuilder {
         var outbounds = config["outbounds"] as? [JSON] ?? []
         let groupTypes: Set<String> = ["selector", "urltest"]
         guard !outbounds.contains(where: { groupTypes.contains(($0["type"] as? String) ?? "") }) else { return config }
-        let nodes = outbounds.compactMap { outbound -> String? in
+        let everything = outboundsAndEndpoints(config)
+        let nodes = everything.compactMap { outbound -> String? in
             guard !utilityTypes.contains((outbound["type"] as? String) ?? "") else { return nil }
             return outbound["tag"] as? String
         }
         guard !nodes.isEmpty else { return config }
 
-        let tags = Set(outbounds.compactMap { $0["tag"] as? String })
+        let tags = Set(everything.compactMap { $0["tag"] as? String })
         let tag = tags.contains(nodeSelectorTag) ? nodeSelectorFallbackTag : nodeSelectorTag
         guard !tags.contains(tag) else { return config }
 
@@ -172,7 +175,7 @@ extension ConfigBuilder {
     /// Tag of the outbound that stands for "the proxy": the profile's `route.final` when it is a real
     /// node or a group, otherwise the first selector, otherwise the first node.
     static func proxyOutboundTag(_ config: JSON) -> String? {
-        let outbounds = config["outbounds"] as? [JSON] ?? []
+        let outbounds = outboundsAndEndpoints(config)
         let nonProxy: Set<String> = ["direct", "block", "dns"]
         func type(of tag: String) -> String? {
             outbounds.first(where: { ($0["tag"] as? String) == tag })?["type"] as? String
@@ -260,7 +263,7 @@ extension ConfigBuilder {
 
     /// Tags a rule may send traffic to: groups first, then nodes.
     static func routableOutboundTags(_ config: JSON) -> [String] {
-        let outbounds = config["outbounds"] as? [JSON] ?? []
+        let outbounds = outboundsAndEndpoints(config)
         let skip: Set<String> = ["direct", "block", "dns"]
         let groups = outbounds.filter { ["selector", "urltest"].contains(($0["type"] as? String) ?? "") }
         let nodes = outbounds.filter { !skip.contains(($0["type"] as? String) ?? "") && !["selector", "urltest"].contains(($0["type"] as? String) ?? "") }

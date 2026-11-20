@@ -99,8 +99,7 @@ final class AppState: ObservableObject {
             tag = group.now
             hops += 1
         }
-        let outbounds = config["outbounds"] as? [JSON] ?? []
-        let outbound = outbounds.first { ($0["tag"] as? String) == tag }
+        let outbound = ConfigBuilder.outboundsAndEndpoints(config).first { ($0["tag"] as? String) == tag }
         let type = outbound?["type"] as? String ?? proxyTypes[tag] ?? "?"
         let tls = outbound?["tls"] as? JSON
         return CurrentNode(
