@@ -85,6 +85,23 @@ struct EmptyHint: View {
     }
 }
 
+/// The blurred desktop behind the window. `.active` keeps the blur when the window is not key.
+struct WindowMaterial: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .sidebar
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+    }
+}
+
 // MARK: - Root
 
 struct RootView: View {
@@ -110,7 +127,7 @@ struct RootView: View {
                 }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(WindowMaterial().ignoresSafeArea())   // the only window background: opaque colour here kills the translucency
         .tint(state.accent)
         .frame(minWidth: 900, minHeight: 600)
         .ignoresSafeArea(.container, edges: .top)

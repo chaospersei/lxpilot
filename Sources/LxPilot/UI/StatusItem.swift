@@ -130,6 +130,12 @@ enum MainWindow {
     static func adopt(_ window: NSWindow) {
         guard self.window !== window else { return }
         self.window = window
+        // Translucent window: SwiftUI's own background stays opaque under `Window`, so the
+        // desktop shows through only when the NSWindow itself is clear and a behind-window
+        // material view (WindowMaterial in RootView) does the blur.
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
         if window.delegate !== interceptor {
             interceptor.original = window.delegate
             window.delegate = interceptor
