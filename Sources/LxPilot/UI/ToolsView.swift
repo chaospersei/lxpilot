@@ -102,6 +102,8 @@ struct ToolsView: View {
                 get: { state.settings.useSystemService },
                 set: { value in Task { await state.setUseSystemService(value) } }))
                 .disabled(!state.settings.servicePaired || state.serviceBusy)
+            Toggle("Оставлять VPN при выходе из приложения", isOn: $state.settings.keepVPNOnQuit)
+                .disabled(!state.settings.useSystemService)
             HStack(spacing: 10) {
                 Button(state.serviceStatus.isInstalled ? "Переустановить службу…" : "Установить службу…") {
                     Task { await state.installService() }
@@ -113,7 +115,7 @@ struct ToolsView: View {
                 if state.serviceBusy { ProgressView().controlSize(.small) }
             }
             .disabled(state.serviceBusy || state.isRunning || !state.coreInstalled)
-            Text("Ядро ставится как LaunchDaemon с правами root (\(SystemService.stateDir)); пароль нужен один раз при установке, сопряжении и обновлении ядра. Приложение ходит к службе по mTLS своим сертификатом (папка service/). Служба общая с singbox-launcher: если она уже установлена, достаточно сопряжения.")
+            Text("С включённым «Оставлять VPN» ядро и системный прокси переживают выход из LxPilot, а при следующем запуске приложение подхватывает работающее ядро без перезапуска. Ядро ставится как LaunchDaemon с правами root (\(SystemService.stateDir)); пароль нужен один раз при установке, сопряжении и обновлении ядра. Приложение ходит к службе по mTLS своим сертификатом (папка service/). Служба общая с singbox-launcher: если она уже установлена, достаточно сопряжения.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

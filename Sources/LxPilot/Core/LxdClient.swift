@@ -13,6 +13,7 @@ struct LxdStats {
     let uplinkTotal: Int64
     let downlinkTotal: Int64
     let connections: Int
+    let coreUptimeSeconds: Double
 }
 
 struct LxdClient {
@@ -116,7 +117,8 @@ struct LxdClient {
         case let list as [Any]: connections = list.count
         default: connections = 0
         }
-        return LxdStats(uplinkTotal: int64("uplink_total"), downlinkTotal: int64("downlink_total"), connections: connections)
+        return LxdStats(uplinkTotal: int64("uplink_total"), downlinkTotal: int64("downlink_total"), connections: connections,
+                        coreUptimeSeconds: (object["core_uptime_seconds"] as? NSNumber)?.doubleValue ?? 0)
     }
 
     func start() async throws {

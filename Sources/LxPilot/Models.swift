@@ -223,6 +223,9 @@ struct AppSettings: Codable, Equatable {
     var serviceAddress = ""        // host:port from the pairing invite
     var serviceFingerprint = ""    // pinned server certificate, sha256 hex
     var servicePassword = AppSettings.randomSecret()   // passphrase of service/client.p12
+    /// Service mode: quitting the app leaves the core (and the system proxy) running; the next
+    /// launch adopts it instead of restarting.
+    var keepVPNOnQuit = false
 
     init() {}
 
@@ -256,6 +259,7 @@ struct AppSettings: Codable, Equatable {
         serviceAddress = try c.decodeIfPresent(String.self, forKey: .serviceAddress) ?? d.serviceAddress
         serviceFingerprint = try c.decodeIfPresent(String.self, forKey: .serviceFingerprint) ?? d.serviceFingerprint
         servicePassword = try c.decodeIfPresent(String.self, forKey: .servicePassword) ?? d.servicePassword
+        keepVPNOnQuit = try c.decodeIfPresent(Bool.self, forKey: .keepVPNOnQuit) ?? d.keepVPNOnQuit
     }
 
     var servicePaired: Bool { !serviceAddress.isEmpty && !serviceFingerprint.isEmpty }

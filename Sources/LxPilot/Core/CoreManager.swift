@@ -154,6 +154,24 @@ final class CoreManager {
         }
     }
 
+    /// A core the service is already running (left behind by "keep VPN on quit" or a crash) becomes
+    /// ours without a restart when it answers on our Clash API port with our secret.
+    func adoptService(settings: AppSettings) async -> Bool {
+        guard settings.useSystemService, settings.servicePaired,
+              let client = try? ClientIdentity.load(password: settings.servicePassword) else { return false }
+        let lxd = LxdClient(address: settings.serviceAddress, fingerprint: settings.serviceFingerprint, identity: client.identity)
+        let clash = ClashAPI(port: settings.clashPort, secret: settings.clashSecret)
+        guard let status = try? await lxd.status(), status.state == "started", await clash.isAlive() else { return false }
+        expectingExit = false
+        outputTail = ""
+        runningAsRoot = true
+        runningEngine = .lxd
+        viaService = true
+        activeClash = clash
+        activeLxd = lxd
+        return true
+    }
+
     /// Hot config swap. `lxd` engine only — the caller restarts the process for `classic`.
     func apply(config: Data) async throws {
         guard let lxd = activeLxd, let clash = activeClash else {
@@ -214,10 +232,10 @@ final class CoreManager {
     }
 
     /// Used from applicationWillTerminate. The root watchdog also notices that the app's pid is gone.
-    func stopSync() {
+    func stopSync(keepServiceCore: Bool = false) {
         expectingExit = true
         if viaService {
-            activeLxd?.stopSync()
+            if !keepServiceCore { activeLxd?.stopSync() }
             return
         }
         if runningAsRoot {

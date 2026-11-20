@@ -130,23 +130,45 @@ final class AppState: ObservableObject {
     func bootstrap() async {
         guard !bootstrapped else { return }
         bootstrapped = true
+        await refreshVersion()
+        await refreshServiceStatus()
+        if await adoptRunningCore() { return }
         // A previous run that crashed may have left the system proxy pointing at a dead port.
         if UserDefaults.standard.bool(forKey: AppState.proxyDirtyKey) {
             _ = await Task.detached { SystemProxy.disable() }.value
             UserDefaults.standard.set(false, forKey: AppState.proxyDirtyKey)
         }
-        await refreshVersion()
-        await refreshServiceStatus()
         if settings.autoConnect, coreInstalled, currentProfile != nil {
             await start()
         }
     }
 
+    /// Service mode: a core left running by the previous run ("keep VPN on quit", or a crash) is
+    /// taken over as is — its config is the one we applied last, `runtime/config.json`.
+    private func adoptRunningCore() async -> Bool {
+        guard coreState == .stopped, settings.useSystemService, await core.adoptService(settings: settings) else { return false }
+        runningSettings = settings
+        coreState = .running
+        if let text = try? String(contentsOf: Paths.runConfig, encoding: .utf8) { activeConfig = ConfigBuilder.parseJSON(text) }
+        let uptime = (try? await lxd?.stats())?.coreUptimeSeconds ?? 0
+        startedAt = Date().addingTimeInterval(-uptime)
+        if settings.systemProxyEnabled {
+            // Re-set even if the flag says it is on: the port may have changed, and it is idempotent.
+            await applySystemProxy(true)
+        } else if UserDefaults.standard.bool(forKey: AppState.proxyDirtyKey) {
+            await applySystemProxy(false)
+        }
+        beginMonitoring()
+        return true
+    }
+
     func shutdownSync() {
         pollTask?.cancel()
         logTask?.cancel()
-        core.stopSync()
-        if UserDefaults.standard.bool(forKey: AppState.proxyDirtyKey) {
+        let keep = isRunning && settings.keepVPNOnQuit && core.viaService
+        core.stopSync(keepServiceCore: keep)
+        // With the core kept, the proxy stays too; the dirty flag then tells the next launch to adopt rather than clean up.
+        if !keep, UserDefaults.standard.bool(forKey: AppState.proxyDirtyKey) {
             SystemProxy.disable()
             UserDefaults.standard.set(false, forKey: AppState.proxyDirtyKey)
         }
