@@ -70,6 +70,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             NSLog("selftest: after toggle — visible=%d key=%d windowVisible=%d policy=%d",
                   window?.isVisible ?? false, window?.isKeyWindow ?? false, AppState.shared.windowVisible, NSApp.activationPolicy().rawValue)
+            // A click on the status item while the window is up: must hide and stay hidden.
+            NSApp.deactivate()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            MainWindow.toggle()
+            MainWindow.toggle()   // the spurious second call a click used to produce
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            NSLog("selftest: after inactive-app toggle pair — visible=%d (expected 1: hide, then the second call brings it back; the debounce lives in the click handler)", window?.isVisible ?? false)
+            statusItem?.simulateClick()
+            statusItem?.simulateClick()
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            NSLog("selftest: after two status-item clicks within 0.3 s — visible=%d (expected 0)", window?.isVisible ?? false)
         }
     }
     #endif

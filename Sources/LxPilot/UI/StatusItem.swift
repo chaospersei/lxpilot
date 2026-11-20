@@ -12,6 +12,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
     private var subscriptions: Set<AnyCancellable> = []
     private var symbolShown = ""
+    private var lastToggle = Date.distantPast
 
     init(state: AppState) {
         self.state = state
@@ -52,13 +53,34 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func clicked() {
-        let event = NSApp.currentEvent
-        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+        // One click can reach us more than once (the status button also reports the press);
+        // only a left mouse-up toggles, and never twice within a third of a second — a down+up
+        // pair would otherwise hide the window and bring it straight back.
+        guard let event = NSApp.currentEvent else { return }
+        switch event.type {
+        case .rightMouseUp:
             showMenu()
-        } else {
+        case .leftMouseUp:
+            if event.modifierFlags.contains(.control) {
+                showMenu()
+            } else if Date().timeIntervalSince(lastToggle) > 0.3 {
+                lastToggle = Date()
+                MainWindow.toggle()
+            }
+        default:
+            break
+        }
+    }
+
+    #if DEBUG
+    /// Self-test hook: what a left mouse-up on the status button does.
+    func simulateClick() {
+        if Date().timeIntervalSince(lastToggle) > 0.3 {
+            lastToggle = Date()
             MainWindow.toggle()
         }
     }
+    #endif
 
     private func showMenu() {
         item.menu = menu
@@ -148,9 +170,10 @@ enum MainWindow {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// On screen → hide, even when another app is in front; buried, minimised or hidden → bring up.
     static func toggle() {
         guard let window else { return }
-        if window.isVisible, !window.isMiniaturized, NSApp.isActive {
+        if window.isVisible, !window.isMiniaturized, window.occlusionState.contains(.visible) {
             window.orderOut(nil)
         } else {
             if window.isMiniaturized { window.deminiaturize(nil) }
