@@ -1,4 +1,5 @@
 import SwiftUI
+import Security
 import AppKit
 import UniformTypeIdentifiers
 
@@ -23,6 +24,9 @@ final class AppState: ObservableObject {
     @Published var coreVersion = ""
     @Published var coreInstalled = false
     @Published var installing = false
+    @Published var serviceStatus: ServiceStatus = .unknown(-1)
+    @Published var serviceStatusText = ""
+    @Published var serviceBusy = false
     @Published var installStatus = ""
     @Published var startedAt: Date?
 
@@ -88,8 +92,19 @@ final class AppState: ObservableObject {
     }
     private var lxd: LxdClient? {
         let source = runningSettings ?? settings
+        if source.useSystemService {
+            guard source.servicePaired, let identity = serviceIdentity(password: source.servicePassword) else { return nil }
+            return LxdClient(address: source.serviceAddress, fingerprint: source.serviceFingerprint, identity: identity)
+        }
         guard source.engine == .lxd else { return nil }
         return LxdClient(port: source.lxdPort, secret: source.lxdSecret)
+    }
+    private var cachedIdentity: (password: String, identity: SecIdentity)?
+    private func serviceIdentity(password: String) -> SecIdentity? {
+        if let cachedIdentity, cachedIdentity.password == password { return cachedIdentity.identity }
+        guard let loaded = try? ClientIdentity.load(password: password) else { return nil }
+        cachedIdentity = (password, loaded.identity)
+        return loaded.identity
     }
 
     var currentNode: CurrentNode? {
@@ -121,6 +136,7 @@ final class AppState: ObservableObject {
             UserDefaults.standard.set(false, forKey: AppState.proxyDirtyKey)
         }
         await refreshVersion()
+        await refreshServiceStatus()
         if settings.autoConnect, coreInstalled, currentProfile != nil {
             await start()
         }
@@ -201,9 +217,9 @@ final class AppState: ObservableObject {
     func reload() async {
         guard isRunning, let profile = currentProfile, let running = runningSettings else { return }
         var next = settings
-        // Ports/engine/privilege are fixed for the lifetime of the process.
-        next.tunEnabled = running.tunEnabled
-        if running.engine == .lxd, next.runtimeKey == running.runtimeKey {
+        // Privilege is fixed for the lifetime of our own process; the service switches TUN by config.
+        if !running.useSystemService { next.tunEnabled = running.tunEnabled }
+        if running.hotApply, next.runtimeKey == running.runtimeKey {
             do {
                 let config = try buildConfig(profile: profile, settings: next)
                 try await core.apply(config: config)
@@ -395,7 +411,11 @@ final class AppState: ObservableObject {
             settings.systemProxyEnabled = false
             if isRunning { await applySystemProxy(false) }
         }
-        if isRunning { await restart() }      // privilege level changes → the process must be relaunched
+        if isRunning {
+            // The system service is root already: TUN is just a different config. Our own process
+            // must be relaunched at the other privilege level.
+            if settings.useSystemService { await reload() } else { await restart() }
+        }
     }
 
     func setSystemProxy(_ enabled: Bool) async {
@@ -776,6 +796,95 @@ final class AppState: ObservableObject {
         profiles.removeAll { $0.id == profile.id }
         if settings.selectedProfileID == profile.id { settings.selectedProfileID = profiles.first?.id }
         persistProfiles()
+    }
+
+    // MARK: - System service (root daemon, mTLS)
+
+    func refreshServiceStatus() async {
+        guard coreInstalled else {
+            serviceStatus = .notInstalled
+            serviceStatusText = ""
+            return
+        }
+        let (status, text) = await SystemService.status()
+        serviceStatus = status
+        serviceStatusText = text
+    }
+
+    /// Installs the LaunchDaemon from our core binary (one password prompt) and pairs with it.
+    func installService() async {
+        guard !isRunning else { alert = "Отключитесь перед установкой службы."; return }
+        guard coreInstalled else { alert = "Сначала скачайте ядро в разделе «Инструменты»."; return }
+        serviceBusy = true
+        defer { serviceBusy = false }
+        do {
+            let invite = try await SystemService.install()
+            try await completePairing(invite)
+            alert = "Системная служба установлена и сопряжена. TUN теперь включается без запроса пароля."
+        } catch {
+            alert = error.localizedDescription
+        }
+        await refreshServiceStatus()
+    }
+
+    /// A new invite from an already installed service (ours or singbox-launcher's) and a fresh certificate.
+    func pairService() async {
+        guard !isRunning else { alert = "Отключитесь перед сопряжением."; return }
+        serviceBusy = true
+        defer { serviceBusy = false }
+        do {
+            let invite = try await SystemService.pair()
+            try await completePairing(invite)
+            alert = "Сопряжение с системной службой выполнено."
+        } catch {
+            alert = error.localizedDescription
+        }
+        await refreshServiceStatus()
+    }
+
+    func uninstallService() async {
+        guard !isRunning else { alert = "Отключитесь перед удалением службы."; return }
+        serviceBusy = true
+        defer { serviceBusy = false }
+        do {
+            try await SystemService.uninstall()
+            settings.useSystemService = false
+            alert = "Системная служба удалена. Сопряжение сохранено на случай повторной установки."
+        } catch {
+            alert = error.localizedDescription
+        }
+        await refreshServiceStatus()
+    }
+
+    func setUseSystemService(_ enabled: Bool) async {
+        guard settings.useSystemService != enabled else { return }
+        if enabled, !settings.servicePaired { alert = "Сначала выполните сопряжение со службой."; return }
+        settings.useSystemService = enabled
+        if isRunning { await restart() }
+    }
+
+    private func completePairing(_ invite: ServiceInvite) async throws {
+        // A named invite replaces the client of that name, so a fresh pair every time is fine.
+        let client = try await ClientIdentity.generate(password: settings.servicePassword)
+        cachedIdentity = nil
+        var attempt = 0
+        while true {
+            do {
+                _ = try await ServiceEnroll.enroll(invite: invite, name: SystemService.clientName, certificatePEM: client.certificatePEM)
+                break
+            } catch let error as URLError where attempt < 5 {
+                // The daemon may still be coming up right after install.
+                attempt += 1
+                _ = error
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+        settings.serviceAddress = invite.address
+        settings.serviceFingerprint = invite.fingerprint
+        settings.useSystemService = true
+        guard let lxd, await lxd.isAlive() else {
+            throw AppError("Сопряжение принято, но служба не отвечает по mTLS. Проверьте журнал \(SystemService.logPath).")
+        }
     }
 
     // MARK: - Core binary

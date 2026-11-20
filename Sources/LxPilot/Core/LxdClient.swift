@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 // Admin REST of `sing-box lxd` (docs-lx/lxd-daemon.md §10). The app runs the daemon in plain
 // loopback mode (`tls: false` + Bearer secret in daemon.json), so stdlib HTTP is enough.
@@ -15,13 +16,27 @@ struct LxdStats {
 }
 
 struct LxdClient {
-    let port: Int
+    let baseURL: URL
     let secret: String
+    let session: URLSession
 
-    private func send(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval = 10) async throws -> (Int, Data) {
-        guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else {
-            throw AppError("Некорректный адрес lxd: \(path)")
-        }
+    /// Our own daemon on loopback: plain HTTP, Bearer secret from daemon.json that we wrote.
+    init(port: Int, secret: String) {
+        baseURL = URL(string: "http://127.0.0.1:\(port)")!
+        self.secret = secret
+        session = ClashAPI.session
+    }
+
+    /// The system service: TLS pinned to the server certificate, our enrolled client certificate.
+    @MainActor
+    init(address: String, fingerprint: String, identity: SecIdentity) {
+        baseURL = URL(string: "https://\(address)") ?? URL(string: "https://127.0.0.1:19091")!
+        secret = ""
+        session = PinnedSessions.session(fingerprint: fingerprint, identity: identity)
+    }
+
+    private func makeRequest(_ method: String, _ path: String, body: Data?, timeout: TimeInterval) throws -> URLRequest {
+        guard let url = URL(string: path, relativeTo: baseURL) else { throw AppError("Некорректный адрес lxd: \(path)") }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeout
@@ -30,8 +45,26 @@ struct LxdClient {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await ClashAPI.session.data(for: request)
+        return request
+    }
+
+    private func send(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval = 10) async throws -> (Int, Data) {
+        let (data, response) = try await session.data(for: try makeRequest(method, path, body: body, timeout: timeout))
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+    }
+
+    /// POST /admin/stop: the core goes down, the daemon stays.
+    func stop() async throws {
+        let (code, _) = try await send("POST", "/admin/stop", timeout: 30)
+        guard code == 200 else { throw AppError("lxd /admin/stop: HTTP \(code)") }
+    }
+
+    /// For applicationWillTerminate, where nothing async can be awaited.
+    func stopSync() {
+        guard let request = try? makeRequest("POST", "/admin/stop", body: nil, timeout: 8) else { return }
+        let done = DispatchSemaphore(value: 0)
+        session.dataTask(with: request) { _, _, _ in done.signal() }.resume()
+        _ = done.wait(timeout: .now() + 9)
     }
 
     func isAlive() async -> Bool {

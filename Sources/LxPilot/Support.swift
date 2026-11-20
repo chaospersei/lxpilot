@@ -32,6 +32,8 @@ enum Paths {
     static let rootLog = runtimeDir.appendingPathComponent("root-core.log")
     static let stopFlag = runtimeDir.appendingPathComponent("stop.flag")
     static let rootPid = runtimeDir.appendingPathComponent("root-core.pid")
+    /// Client certificate for the system service (client.p12, client-cert.pem, client-key.pem; 0600).
+    static let serviceDir = make(appSupport.appendingPathComponent("service", isDirectory: true))
     static let settingsFile = appSupport.appendingPathComponent("settings.json")
     static let profilesIndex = appSupport.appendingPathComponent("profiles.json")
 
@@ -117,6 +119,16 @@ enum Shell {
     }
 
     /// Runs a shell script file as root, detached, after the system password prompt.
+    /// Runs one command as root through the system password prompt and waits for it: stdout comes
+    /// back as the result, a failure arrives as osascript's "execution error: <stderr> (<code>)".
+    static func runAsAdmin(command: String, prompt: String) async -> ShellResult {
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        }
+        let source = "do shell script \"\(esc(command)) 2>&1\" with prompt \"\(esc(prompt))\" with administrator privileges"
+        return await run("/usr/bin/osascript", ["-e", source])
+    }
+
     static func runScriptAsAdmin(path: String, prompt: String) async -> ShellResult {
         func esc(_ s: String) -> String {
             s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")

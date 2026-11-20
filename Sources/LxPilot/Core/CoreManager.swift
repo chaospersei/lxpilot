@@ -18,6 +18,8 @@ final class CoreManager {
     private var expectingExit = false
     private(set) var runningAsRoot = false
     private(set) var runningEngine: Engine = .lxd
+    /// The core lives in the system LaunchDaemon: no process of ours, stop = POST /admin/stop.
+    private(set) var viaService = false
     private var activeClash: ClashAPI?
     private var activeLxd: LxdClient?
 
@@ -36,6 +38,10 @@ final class CoreManager {
 
     func start(config: Data, settings: AppSettings) async throws {
         guard binaryExists else { throw AppError("Ядро sing-box-lx не установлено.") }
+        if settings.useSystemService {
+            try await startViaService(config: config, settings: settings)
+            return
+        }
         try await validateAndStore(config)
 
         let root = settings.tunEnabled
@@ -106,6 +112,48 @@ final class CoreManager {
         throw AppError(details.isEmpty ? failure : "\(failure)\n\n\(details)")
     }
 
+    /// The system service already runs as root: hand it the config and wait for the Clash API.
+    private func startViaService(config: Data, settings: AppSettings) async throws {
+        guard settings.servicePaired, let client = try ClientIdentity.load(password: settings.servicePassword) else {
+            throw AppError("Нет сопряжения с системной службой. Выполните его в «Инструментах».")
+        }
+        let lxd = LxdClient(address: settings.serviceAddress, fingerprint: settings.serviceFingerprint, identity: client.identity)
+        let clash = ClashAPI(port: settings.clashPort, secret: settings.clashSecret)
+        guard await lxd.isAlive() else {
+            throw AppError("Системная служба sing-box-lx не отвечает по \(settings.serviceAddress). Проверьте её состояние в «Инструментах».")
+        }
+        try await validateAndStore(config)
+
+        expectingExit = false
+        outputTail = ""
+        runningAsRoot = true
+        runningEngine = .lxd
+        viaService = true
+        activeClash = clash
+        activeLxd = lxd
+
+        do {
+            try await lxd.apply(config)
+            try? await lxd.start()
+            let deadline = Date().addingTimeInterval(30)
+            var failure = ""
+            while Date() < deadline {
+                if await clash.isAlive() { return }
+                if let status = try? await lxd.status(), status.state == "fatal" {
+                    failure = status.lastError.isEmpty ? "Служба сообщила о сбое запуска ядра." : stripANSI(status.lastError)
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+            if failure.isEmpty { failure = "Ядро в службе не ответило за отведённое время." }
+            let details = await lxd.logTail(40)
+            throw AppError(details.isEmpty ? failure : "\(failure)\n\n\(details.suffix(1500))")
+        } catch {
+            await stop()
+            throw error
+        }
+    }
+
     /// Hot config swap. `lxd` engine only — the caller restarts the process for `classic`.
     func apply(config: Data) async throws {
         guard let lxd = activeLxd, let clash = activeClash else {
@@ -124,7 +172,17 @@ final class CoreManager {
 
     func stop() async {
         expectingExit = true
-        if runningAsRoot {
+        if viaService {
+            if let lxd = activeLxd {
+                try? await lxd.stop()
+                if let clash = activeClash {
+                    for _ in 0..<40 {
+                        if !(await clash.isAlive()) { break }
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                    }
+                }
+            }
+        } else if runningAsRoot {
             FileManager.default.createFile(atPath: Paths.stopFlag.path, contents: nil)
             // The watchdog sees the flag within a second and sends TERM; wait for the pid to vanish
             // (the Clash API closes before the inbounds do, so it alone is not a sign the ports are free).
@@ -150,6 +208,7 @@ final class CoreManager {
         }
         process = nil
         runningAsRoot = false
+        viaService = false
         activeClash = nil
         activeLxd = nil
     }
@@ -157,6 +216,10 @@ final class CoreManager {
     /// Used from applicationWillTerminate. The root watchdog also notices that the app's pid is gone.
     func stopSync() {
         expectingExit = true
+        if viaService {
+            activeLxd?.stopSync()
+            return
+        }
         if runningAsRoot {
             FileManager.default.createFile(atPath: Paths.stopFlag.path, contents: nil)
         }
@@ -292,13 +355,13 @@ final class CoreManager {
         var parts: [String] = []
         let tail = outputTail.trimmingCharacters(in: .whitespacesAndNewlines)
         if !tail.isEmpty { parts.append(String(tail.suffix(1500))) }
-        if runningAsRoot, let text = try? String(contentsOf: Paths.rootLog, encoding: .utf8) {
+        if runningAsRoot, !viaService, let text = try? String(contentsOf: Paths.rootLog, encoding: .utf8) {
             let clean = stripANSI(text).trimmingCharacters(in: .whitespacesAndNewlines)
             if !clean.isEmpty { parts.append(String(clean.suffix(1500))) }
         }
         if let lxd = activeLxd {
             var daemonLog = await lxd.logTail(40)
-            if daemonLog.isEmpty, let text = try? String(contentsOf: Paths.lxdLog(root: runningAsRoot), encoding: .utf8) {
+            if daemonLog.isEmpty, !viaService, let text = try? String(contentsOf: Paths.lxdLog(root: runningAsRoot), encoding: .utf8) {
                 daemonLog = stripANSI(text)
             }
             let clean = daemonLog.trimmingCharacters(in: .whitespacesAndNewlines)

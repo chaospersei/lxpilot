@@ -62,7 +62,7 @@ enum ConfigBuilder {
     /// Runtime overlay applied on top of the selected profile right before it goes to the core.
     static func overlay(_ profile: JSON, settings: AppSettings) -> JSON {
         var config = profile
-        let root = settings.tunEnabled
+        let root = settings.runsAsRoot
 
         var log = config["log"] as? JSON ?? [:]
         log["level"] = settings.logLevel

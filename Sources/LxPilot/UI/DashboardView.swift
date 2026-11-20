@@ -266,7 +266,9 @@ struct TunCard: View {
                     .labelsHidden()
                     .disabled(state.isBusy)
             }
-            Text("Весь трафик Mac через виртуальный интерфейс. Нужны права администратора: при подключении macOS спросит пароль.")
+            Text(state.settings.useSystemService
+                 ? "Весь трафик Mac через виртуальный интерфейс. Включается через системную службу, без пароля."
+                 : "Весь трафик Mac через виртуальный интерфейс. Нужны права администратора: при подключении macOS спросит пароль.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -362,7 +364,7 @@ struct CoreCard: View {
         VStack(alignment: .leading, spacing: 10) {
             CardTitle(icon: "cpu", title: "Ядро")
             row("Версия", state.coreVersion.isEmpty ? "не установлено" : state.coreVersion)
-            row("Движок", state.settings.engine == .lxd ? "lxd" : "run")
+            row("Движок", state.settings.useSystemService ? "служба" : (state.settings.engine == .lxd ? "lxd" : "run"))
             row("Память", state.isRunning ? formatBytes(live.memory) : "—")
         }
         .frame(minHeight: 118, alignment: .topLeading)

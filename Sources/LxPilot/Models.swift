@@ -218,6 +218,11 @@ struct AppSettings: Codable, Equatable {
     var menuBarStyle: MenuBarStyle = .speedGraph
     var appRules: [AppRule] = []
     var routing = RoutingConfig()
+    /// Talk to the system LaunchDaemon of sing-box-lx (root, mTLS) instead of running a core process.
+    var useSystemService = false
+    var serviceAddress = ""        // host:port from the pairing invite
+    var serviceFingerprint = ""    // pinned server certificate, sha256 hex
+    var servicePassword = AppSettings.randomSecret()   // passphrase of service/client.p12
 
     init() {}
 
@@ -247,7 +252,17 @@ struct AppSettings: Codable, Equatable {
         menuBarStyle = try c.decodeIfPresent(MenuBarStyle.self, forKey: .menuBarStyle) ?? d.menuBarStyle
         appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
         routing = try c.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? d.routing
+        useSystemService = try c.decodeIfPresent(Bool.self, forKey: .useSystemService) ?? d.useSystemService
+        serviceAddress = try c.decodeIfPresent(String.self, forKey: .serviceAddress) ?? d.serviceAddress
+        serviceFingerprint = try c.decodeIfPresent(String.self, forKey: .serviceFingerprint) ?? d.serviceFingerprint
+        servicePassword = try c.decodeIfPresent(String.self, forKey: .servicePassword) ?? d.servicePassword
     }
+
+    var servicePaired: Bool { !serviceAddress.isEmpty && !serviceFingerprint.isEmpty }
+    /// The core runs as root: either our root launch for TUN or the system service.
+    var runsAsRoot: Bool { tunEnabled || useSystemService }
+    /// Config changes go through POST /admin/apply instead of a process restart.
+    var hotApply: Bool { useSystemService || engine == .lxd }
 
     static func randomSecret() -> String {
         UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
@@ -256,7 +271,7 @@ struct AppSettings: Codable, Equatable {
     /// Everything that only takes effect when the core is (re)started.
     var runtimeKey: String {
         [engine.rawValue, "\(manageInbounds)", "\(allowLAN)", "\(mixedPort)", "\(clashPort)", clashSecret,
-         "\(lxdPort)", lxdSecret, tunStack, logLevel].joined(separator: "|")
+         "\(lxdPort)", lxdSecret, tunStack, logLevel, "\(useSystemService)", serviceAddress, serviceFingerprint].joined(separator: "|")
     }
 }
 

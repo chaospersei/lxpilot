@@ -28,11 +28,13 @@ struct ToolsView: View {
 
             Form {
                 coreSection
+                serviceSection
                 networkSection
                 appSection
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
+            .task { await state.refreshServiceStatus() }
         }
     }
 
@@ -80,6 +82,38 @@ struct ToolsView: View {
                 }
             }
             Text("Релизы берутся с github.com/Leadaxe/sing-box-lx и сверяются с SHA256SUMS. Для XHTTP, AmneziaWG и lxd нужна именно сборка lx.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var serviceSection: some View {
+        Section("Системная служба (TUN без пароля)") {
+            LabeledContent("Служба \(SystemService.label)") {
+                Text(state.serviceStatus.title)
+                    .foregroundStyle(state.serviceStatus == .running ? Color.green : Color.secondary)
+            }
+            LabeledContent("Сопряжение") {
+                Text(state.settings.servicePaired ? "есть · \(state.settings.serviceAddress)" : "нет")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            Toggle("Подключаться через системную службу", isOn: Binding(
+                get: { state.settings.useSystemService },
+                set: { value in Task { await state.setUseSystemService(value) } }))
+                .disabled(!state.settings.servicePaired || state.serviceBusy)
+            HStack(spacing: 10) {
+                Button(state.serviceStatus.isInstalled ? "Переустановить службу…" : "Установить службу…") {
+                    Task { await state.installService() }
+                }
+                Button("Сопряжение заново…") { Task { await state.pairService() } }
+                    .disabled(!state.serviceStatus.isInstalled)
+                Button("Удалить службу…") { Task { await state.uninstallService() } }
+                    .disabled(!state.serviceStatus.isInstalled)
+                if state.serviceBusy { ProgressView().controlSize(.small) }
+            }
+            .disabled(state.serviceBusy || state.isRunning || !state.coreInstalled)
+            Text("Ядро ставится как LaunchDaemon с правами root (\(SystemService.stateDir)); пароль нужен один раз при установке, сопряжении и обновлении ядра. Приложение ходит к службе по mTLS своим сертификатом (папка service/). Служба общая с singbox-launcher: если она уже установлена, достаточно сопряжения.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
