@@ -81,6 +81,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem?.simulateClick()
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             NSLog("selftest: after two status-item clicks within 0.3 s — visible=%d (expected 0)", window?.isVisible ?? false)
+            MainWindow.show()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            func frames() -> String {
+                guard let window, let close = window.standardWindowButton(.closeButton), let zoom = window.standardWindowButton(.zoomButton),
+                      let titlebar = close.superview, let container = titlebar.superview else { return "no buttons" }
+                return String(format: "close=(%.0f,%.0f) zoom=(%.0f,%.0f) titlebar h=%.0f container y=%.0f h=%.0f frame h=%.0f",
+                              close.frame.origin.x, close.frame.origin.y, zoom.frame.origin.x, zoom.frame.origin.y,
+                              titlebar.frame.height, container.frame.origin.y, container.frame.height, container.superview?.bounds.height ?? 0)
+            }
+            NSLog("selftest: buttons %@", frames())
+            window?.setContentSize(NSSize(width: 1000, height: 650))
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            NSLog("selftest: buttons after resize %@", frames())
         }
     }
     #endif

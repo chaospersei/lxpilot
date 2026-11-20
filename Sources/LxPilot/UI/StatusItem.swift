@@ -158,6 +158,7 @@ enum MainWindow {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.titlebarAppearsTransparent = true
+        WindowButtons.install(on: window)
         if window.delegate !== interceptor {
             interceptor.original = window.delegate
             window.delegate = interceptor

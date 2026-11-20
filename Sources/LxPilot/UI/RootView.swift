@@ -169,7 +169,7 @@ struct NavigationRail: View {
             Image(systemName: "shield.lefthalf.filled")
                 .font(.system(size: 24))
                 .foregroundStyle(state.accent)
-                .padding(.top, 36)   // below the traffic lights of the hidden title bar
+                .padding(.top, WindowButtons.zoneHeight + 6)   // the traffic lights sit centred in the zone above
                 .padding(.bottom, 14)
             ForEach(Page.allCases) { page in
                 RailButton(page: page)
