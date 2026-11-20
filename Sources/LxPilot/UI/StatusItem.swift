@@ -36,12 +36,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let button = item.button else { return }
         switch state.settings.menuBarStyle {
         case .icon:
-            let symbol = state.isRunning ? "shield.lefthalf.filled" : "shield"
+            // The link line shows only while connected.
+            let symbol = state.isRunning ? "linked" : "apart"
             guard symbol != symbolShown else { return }
             symbolShown = symbol
-            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "LxPilot")
-            image?.isTemplate = true
-            button.image = image
+            button.image = AppIcon.glyph(linked: state.isRunning, size: 18)
         case .speed, .speedGraph:
             symbolShown = ""
             let image = MenuBarRenderer.image(

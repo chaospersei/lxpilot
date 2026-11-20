@@ -166,8 +166,8 @@ struct NavigationRail: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 24))
+            Image(nsImage: AppIcon.glyph(linked: true, size: 30))
+                .renderingMode(.template)
                 .foregroundStyle(state.accent)
                 .padding(.top, WindowButtons.zoneHeight + 6)   // the traffic lights sit centred in the zone above
                 .padding(.bottom, 14)

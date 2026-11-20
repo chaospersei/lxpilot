@@ -18,6 +18,36 @@ enum AppIcon {
     private static let rocketBounds = CGRect(x: 80.0 / 1024, y: 80.0 / 1024, width: 864.0 / 1024, height: 864.0 / 1024)
     static let traySize = NSSize(width: 18, height: 18)
 
+    /// The app glyph, vector: two nodes on either side of a wall, a link line through its gap when
+    /// `linked`. Template image, so it takes the menu bar or accent colour. Same geometry as
+    /// Tools/make-glyph-icon.swift (1024 design units).
+    static func glyph(linked: Bool, size: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let k = rect.width / 1024
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * k, y: y * k) }
+            func rr(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGPath {
+                CGPath(roundedRect: CGRect(x: x * k, y: y * k, width: w * k, height: h * k), cornerWidth: 40 * k, cornerHeight: 40 * k, transform: nil)
+            }
+            ctx.setFillColor(.black)
+            ctx.setStrokeColor(.black)
+            if linked {
+                ctx.setLineWidth(72 * k)
+                ctx.setLineCap(.round)
+                ctx.move(to: pt(188, 512)); ctx.addLine(to: pt(836, 512)); ctx.strokePath()
+            }
+            ctx.addPath(rr(436, 130, 152, 318)); ctx.fillPath()
+            ctx.addPath(rr(436, 576, 152, 318)); ctx.fillPath()
+            for x in [188.0, 836.0] as [CGFloat] {
+                ctx.addPath(CGPath(ellipseIn: CGRect(x: (x - 140) * k, y: 372 * k, width: 280 * k, height: 280 * k), transform: nil))
+                ctx.fillPath()
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
     /// Menu bar version: the tile, 18 pt. Not a template, so it keeps its colours next to the
     /// tinted speed text.
     static let tray: NSImage = {
