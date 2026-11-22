@@ -133,6 +133,15 @@ final class AppState: ObservableObject {
             port: ((outbound?["server_port"] as? NSNumber) ?? (peer?["port"] as? NSNumber))?.intValue)
     }
 
+    /// Tags whose traffic does not go through a proxy: direct, block and DNS outbounds of the running config.
+    var nonProxyOutboundTags: Set<String> {
+        guard let config = activeConfig else { return [] }
+        let types: Set<String> = ["direct", "block", "dns"]
+        return Set(ConfigBuilder.outboundsAndEndpoints(config)
+            .filter { types.contains(($0["type"] as? String) ?? "") }
+            .compactMap { $0["tag"] as? String })
+    }
+
     // MARK: - Launch / quit
 
     func bootstrap() async {

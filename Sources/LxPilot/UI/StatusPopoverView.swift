@@ -113,16 +113,25 @@ struct StatusPopoverView: View {
         }
     }
 
+    /// Only what goes through a proxy: `chains[0]` is the outbound that carries the connection.
+    private var proxiedConnections: [ClashConnection] {
+        let skip = state.nonProxyOutboundTags
+        return live.connections.filter { connection in
+            guard let exit = connection.chains?.first else { return true }
+            return !skip.contains(exit)
+        }
+    }
+
     private var topConnections: [ClashConnection] {
         let rates = live.connectionRates
         let sorted: [ClashConnection]
         switch state.settings.popoverSort {
         case .speed:
-            sorted = live.connections.sorted { (rates[$0.id] ?? 0, $0.totalBytes) > (rates[$1.id] ?? 0, $1.totalBytes) }
+            sorted = proxiedConnections.sorted { (rates[$0.id] ?? 0, $0.totalBytes) > (rates[$1.id] ?? 0, $1.totalBytes) }
         case .duration:
-            sorted = live.connections.sorted { ($0.startDate ?? .distantFuture) < ($1.startDate ?? .distantFuture) }
+            sorted = proxiedConnections.sorted { ($0.startDate ?? .distantFuture) < ($1.startDate ?? .distantFuture) }
         case .volume:
-            sorted = live.connections.sorted { $0.totalBytes > $1.totalBytes }
+            sorted = proxiedConnections.sorted { $0.totalBytes > $1.totalBytes }
         }
         return Array(sorted.prefix(5))
     }
@@ -130,7 +139,7 @@ struct StatusPopoverView: View {
     private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("Соединения · \(live.connectionCount)")
+                Text("Через прокси · \(proxiedConnections.count) из \(live.connectionCount)")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
                 Picker("", selection: $state.settings.popoverSort) {
@@ -141,7 +150,7 @@ struct StatusPopoverView: View {
                 .frame(width: 170)
             }
             if topConnections.isEmpty {
-                Text("Нет активных соединений")
+                Text("Нет соединений через прокси")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             } else {
