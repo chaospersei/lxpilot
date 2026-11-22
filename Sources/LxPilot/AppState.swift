@@ -40,6 +40,9 @@ final class AppState: ObservableObject {
     /// False while the main window is closed, minimised or fully covered: the page content is not
     /// built at all then, and the poll skips what only the window would show.
     @Published private(set) var windowVisible = true
+    /// The status item popover is open: it needs the connection list and a one-second poll.
+    private(set) var popoverVisible = false
+    private var lastConnectionBytes: [String: Int64] = [:]
     @Published var mode = ""
     @Published var modeList: [String] = []
     @Published var ipInfo: IPInfo?
@@ -521,7 +524,13 @@ final class AppState: ObservableObject {
 
     /// Once a second normally; every five when nothing shows the numbers (window hidden, icon-only menu bar).
     private var pollInterval: UInt64 {
-        !windowVisible && settings.menuBarStyle == .icon ? 5_000_000_000 : 1_000_000_000
+        !windowVisible && !popoverVisible && settings.menuBarStyle == .icon ? 5_000_000_000 : 1_000_000_000
+    }
+
+    func setPopoverVisible(_ visible: Bool) {
+        guard popoverVisible != visible else { return }
+        popoverVisible = visible
+        if visible, isRunning { Task { await pollOnce(force: true) } }
     }
 
     func setWindowVisible(_ visible: Bool) {
@@ -534,8 +543,8 @@ final class AppState: ObservableObject {
 
     private func pollOnce(force: Bool = false) async {
         guard isRunning else { return }
-        let showsWindow = windowVisible
-        let needHistory = showsWindow || settings.menuBarStyle == .speedGraph
+        let showsWindow = windowVisible || popoverVisible
+        let needHistory = showsWindow || settings.menuBarStyle == .speedGraph || popoverVisible
         do {
             let up: Int64
             let down: Int64
@@ -575,7 +584,19 @@ final class AppState: ObservableObject {
             if live.downTotal != down { live.downTotal = down }
             if let memory, live.memory != memory { live.memory = memory }
             if live.connectionCount != count { live.connectionCount = count }
-            if let list, live.connections != list { live.connections = list }
+            if let list {
+                if live.connections != list { live.connections = list }
+                var seen: [String: Int64] = [:]
+                var rates: [String: Double] = [:]
+                for connection in list {
+                    seen[connection.id] = connection.totalBytes
+                    if let previous = lastConnectionBytes[connection.id] {
+                        rates[connection.id] = Double(max(connection.totalBytes - previous, 0)) / elapsed
+                    }
+                }
+                lastConnectionBytes = seen
+                if live.connectionRates != rates { live.connectionRates = rates }
+            }
             if needHistory { live.appendSample(up: upSpeed, down: downSpeed) }
             pollFailures = 0
         } catch {

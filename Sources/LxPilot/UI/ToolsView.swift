@@ -176,6 +176,12 @@ struct ToolsView: View {
                 get: { launchAtLogin },
                 set: { value in setLaunchAtLogin(value) }))
             Toggle("Поповер с графиком при наведении на значок", isOn: $state.settings.hoverPopover)
+            Toggle("Показывать в поповере топ-5 соединений", isOn: $state.settings.popoverConnections)
+                .disabled(!state.settings.hoverPopover)
+            Picker("Сортировка соединений в поповере", selection: $state.settings.popoverSort) {
+                ForEach(PopoverSort.allCases) { Text($0.title).tag($0) }
+            }
+            .disabled(!state.settings.hoverPopover || !state.settings.popoverConnections)
             Picker("Значок в строке меню", selection: $state.settings.menuBarStyle) {
                 ForEach(MenuBarStyle.allCases) { style in
                     Text(style.title).tag(style)

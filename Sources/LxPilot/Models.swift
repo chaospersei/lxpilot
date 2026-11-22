@@ -218,6 +218,8 @@ struct AppSettings: Codable, Equatable {
     var menuBarStyle: MenuBarStyle = .speedGraph
     /// Popover with the 5-minute chart and the node card when the pointer rests on the status item.
     var hoverPopover = true
+    var popoverConnections = true
+    var popoverSort: PopoverSort = .speed
     var appRules: [AppRule] = []
     var routing = RoutingConfig()
     /// Talk to the system LaunchDaemon of sing-box-lx (root, mTLS) instead of running a core process.
@@ -256,6 +258,8 @@ struct AppSettings: Codable, Equatable {
         accent = try c.decodeIfPresent(AccentChoice.self, forKey: .accent) ?? d.accent
         menuBarStyle = try c.decodeIfPresent(MenuBarStyle.self, forKey: .menuBarStyle) ?? d.menuBarStyle
         hoverPopover = try c.decodeIfPresent(Bool.self, forKey: .hoverPopover) ?? d.hoverPopover
+        popoverConnections = try c.decodeIfPresent(Bool.self, forKey: .popoverConnections) ?? d.popoverConnections
+        popoverSort = try c.decodeIfPresent(PopoverSort.self, forKey: .popoverSort) ?? d.popoverSort
         appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
         routing = try c.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? d.routing
         useSystemService = try c.decodeIfPresent(Bool.self, forKey: .useSystemService) ?? d.useSystemService
@@ -353,6 +357,19 @@ struct LogLine: Identifiable {
 }
 
 /// The node that carries "proxy" traffic right now: the selector chain resolved through `now`.
+/// Order of the connection list in the status item popover.
+enum PopoverSort: String, Codable, CaseIterable, Identifiable {
+    case speed, duration, volume
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .speed: return "По скорости"
+        case .duration: return "По продолжительности"
+        case .volume: return "По объёму"
+        }
+    }
+}
+
 struct CurrentNode: Equatable {
     let tag: String
     let type: String

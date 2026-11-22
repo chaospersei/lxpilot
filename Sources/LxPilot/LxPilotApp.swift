@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("selftest: popover after hover-in %d (expected 1)", statusItem?.popoverShown ?? false)
             statusItem?.simulateHover(false)
             try? await Task.sleep(nanoseconds: 700_000_000)
-            NSLog("selftest: popover after hover-out %d (expected 0)", statusItem?.popoverShown ?? false)
+            NSLog("selftest: popover after hover-out %d (expected 0; %@)", statusItem?.popoverShown ?? false, statusItem?.hoverState ?? "")
         }
     }
     #endif

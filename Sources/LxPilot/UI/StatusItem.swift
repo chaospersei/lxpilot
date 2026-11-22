@@ -90,17 +90,20 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
         popover.contentViewController = NSHostingController(rootView: content)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         self.popover = popover
+        state.setPopoverVisible(true)
     }
 
     private func closePopover() {
         popover?.performClose(nil)
         popover = nil
         overPopover = false
+        state.setPopoverVisible(false)
     }
 
     #if DEBUG
     func simulateHover(_ inside: Bool) { hover(button: inside) }
     var popoverShown: Bool { popover?.isShown ?? false }
+    var hoverState: String { "button=\(overButton) popover=\(overPopover) mouse=\(NSEvent.mouseLocation)" }
     #endif
 
     @objc private func clicked() {

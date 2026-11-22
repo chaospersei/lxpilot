@@ -47,6 +47,18 @@ struct ClashConnection: Decodable, Identifiable, Equatable {
     let chains: [String]?
     let rule: String?
     let rulePayload: String?
+    let start: String?   // RFC 3339, from the core
+
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
+    }()
+    private static let iso = ISO8601DateFormatter()
+
+    var startDate: Date? {
+        guard let start else { return nil }
+        return Self.isoFractional.date(from: start) ?? Self.iso.date(from: start)
+    }
+    var totalBytes: Int64 { (upload ?? 0) + (download ?? 0) }
 
     var hostText: String {
         let host = (metadata.host?.isEmpty == false ? metadata.host : metadata.destinationIP) ?? "—"

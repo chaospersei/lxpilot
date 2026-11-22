@@ -11,6 +11,8 @@ final class LiveStats: ObservableObject {
     @Published var memory: Int64 = 0
     @Published var connectionCount = 0
     @Published var connections: [ClashConnection] = []
+    /// Bytes per second per connection id, from the last two polls.
+    @Published var connectionRates: [String: Double] = [:]
     /// Always exactly 60 samples (zero-filled): the chart and the menu bar graph rely on it.
     @Published var speedHistory: [SpeedSample] = LiveStats.emptyHistory()
     /// Five minutes for the status item popover, same samples, longer window.
@@ -39,6 +41,7 @@ final class LiveStats: ObservableObject {
         memory = 0
         connectionCount = 0
         connections = []
+        connectionRates = [:]
         speedHistory = LiveStats.emptyHistory()
         longHistory = LiveStats.emptyHistory(LiveStats.longCount)
     }

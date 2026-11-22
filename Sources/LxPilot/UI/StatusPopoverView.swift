@@ -24,6 +24,10 @@ struct StatusPopoverView: View {
 
             if state.isRunning, let node = state.currentNode {
                 nodeCard(node)
+                if state.settings.popoverConnections {
+                    Divider()
+                    connectionsSection
+                }
             } else {
                 HStack(spacing: 8) {
                     Circle().fill(Color.gray).frame(width: 8, height: 8)
@@ -101,6 +105,67 @@ struct StatusPopoverView: View {
             row("Режим", modeTitle(state.mode.isEmpty ? "rule" : state.mode))
             if live.connectionCount > 0 {
                 row("Соединений", "\(live.connectionCount)")
+            }
+        }
+    }
+
+    private var topConnections: [ClashConnection] {
+        let rates = live.connectionRates
+        let sorted: [ClashConnection]
+        switch state.settings.popoverSort {
+        case .speed:
+            sorted = live.connections.sorted { (rates[$0.id] ?? 0, $0.totalBytes) > (rates[$1.id] ?? 0, $1.totalBytes) }
+        case .duration:
+            sorted = live.connections.sorted { ($0.startDate ?? .distantFuture) < ($1.startDate ?? .distantFuture) }
+        case .volume:
+            sorted = live.connections.sorted { $0.totalBytes > $1.totalBytes }
+        }
+        return Array(sorted.prefix(5))
+    }
+
+    private var connectionsSection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Соединения · \(live.connectionCount)")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Picker("", selection: $state.settings.popoverSort) {
+                    ForEach(PopoverSort.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 170)
+            }
+            if topConnections.isEmpty {
+                Text("Нет активных соединений")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    Text("Адрес").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Скорость").frame(width: 74, alignment: .trailing)
+                    Text("Время").frame(width: 56, alignment: .trailing)
+                    Text("Объём").frame(width: 64, alignment: .trailing)
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                ForEach(topConnections) { connection in
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        HStack(spacing: 8) {
+                            Text(connection.hostText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(formatSpeed(live.connectionRates[connection.id] ?? 0))
+                                .frame(width: 74, alignment: .trailing)
+                            Text(connection.startDate.map { formatDuration(context.date.timeIntervalSince($0)) } ?? "—")
+                                .frame(width: 56, alignment: .trailing)
+                            Text(formatBytes(connection.totalBytes))
+                                .frame(width: 64, alignment: .trailing)
+                        }
+                        .font(.system(size: 11, design: .monospaced))
+                    }
+                }
             }
         }
     }
