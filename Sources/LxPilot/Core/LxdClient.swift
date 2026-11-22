@@ -121,6 +121,16 @@ struct LxdClient {
                         coreUptimeSeconds: (object["core_uptime_seconds"] as? NSNumber)?.doubleValue ?? 0)
     }
 
+    /// GET /admin/info → the daemon's pid (the core runs inside it).
+    func pid() async throws -> Int32 {
+        let (code, data) = try await send("GET", "/admin/info", timeout: 3)
+        guard code == 200, let object = (try? JSONSerialization.jsonObject(with: data)) as? JSON,
+              let pid = (object["pid"] as? NSNumber)?.int32Value else {
+            throw AppError("lxd /admin/info: HTTP \(code)")
+        }
+        return pid
+    }
+
     func start() async throws {
         _ = try await send("POST", "/admin/start", timeout: 60)
     }

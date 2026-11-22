@@ -172,6 +172,13 @@ final class CoreManager {
         return true
     }
 
+    /// Pid of the process that hosts the core, whichever way it was launched.
+    func corePid() async -> Int32? {
+        if viaService { return try? await activeLxd?.pid() }
+        if runningAsRoot { return rootPid }
+        return process?.processIdentifier
+    }
+
     /// Hot config swap. `lxd` engine only — the caller restarts the process for `classic`.
     func apply(config: Data) async throws {
         guard let lxd = activeLxd, let clash = activeClash else {

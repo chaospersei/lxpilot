@@ -66,6 +66,7 @@ final class AppState: ObservableObject {
     private var lastPoll = Date()
     private var logFlushScheduled = false
     private var nextProxyRefresh = Date.distantPast
+    private var nextResourceSample = Date.distantPast
     private var nextProbe = Date.distantFuture
     private var bootstrapped = false
 
@@ -623,6 +624,30 @@ final class AppState: ObservableObject {
             nextProbe = now.addingTimeInterval(60)
             await probeProxy()
         }
+        if popoverVisible, force || now >= nextResourceSample {
+            nextResourceSample = now.addingTimeInterval(3)
+            await sampleResources()
+        }
+    }
+
+    /// CPU and resident memory of this app and the core process, summed. `ps` reads any process,
+    /// a root core included, which task_info from here could not.
+    private func sampleResources() async {
+        var pids = [ProcessInfo.processInfo.processIdentifier]
+        if let corePid = await core.corePid() { pids.append(corePid) }
+        let result = await Shell.run("/bin/ps", ["-o", "%cpu=,rss=", "-p", pids.map(String.init).joined(separator: ",")])
+        // ps exits 1 when one pid is gone but still prints the others; use whatever came back.
+        guard !result.stdout.isEmpty else { return }
+        var cpu = 0.0
+        var rssKB: Int64 = 0
+        for line in result.stdout.split(separator: "\n") {
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 2, let c = Double(parts[0]), let r = Int64(parts[1]) else { continue }
+            cpu += c
+            rssKB += r
+        }
+        if live.cpuPercent != cpu { live.cpuPercent = cpu }
+        if live.residentBytes != rssKB * 1024 { live.residentBytes = rssKB * 1024 }
     }
 
     private func displayed(_ speed: Double) -> String {

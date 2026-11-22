@@ -103,6 +103,10 @@ struct StatusPopoverView: View {
             row("Внешний IP", ipText)
             row("Задержка", latencyText)
             row("Режим", modeTitle(state.mode.isEmpty ? "rule" : state.mode))
+            row("Передано", "↑ \(formatBytes(live.upTotal)) · ↓ \(formatBytes(live.downTotal))")
+            row("CPU · RAM", live.residentBytes > 0
+                ? String(format: "%.1f %% · %@", live.cpuPercent, formatBytes(live.residentBytes)) + "  (приложение + ядро)"
+                : "…")
             if live.connectionCount > 0 {
                 row("Соединений", "\(live.connectionCount)")
             }

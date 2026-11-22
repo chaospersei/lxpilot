@@ -13,6 +13,9 @@ final class LiveStats: ObservableObject {
     @Published var connections: [ClashConnection] = []
     /// Bytes per second per connection id, from the last two polls.
     @Published var connectionRates: [String: Double] = [:]
+    /// App + core together, sampled with `ps` while the popover is open.
+    @Published var cpuPercent: Double = 0
+    @Published var residentBytes: Int64 = 0
     /// Always exactly 60 samples (zero-filled): the chart and the menu bar graph rely on it.
     @Published var speedHistory: [SpeedSample] = LiveStats.emptyHistory()
     /// Five minutes for the status item popover, same samples, longer window.
@@ -42,6 +45,8 @@ final class LiveStats: ObservableObject {
         connectionCount = 0
         connections = []
         connectionRates = [:]
+        cpuPercent = 0
+        residentBytes = 0
         speedHistory = LiveStats.emptyHistory()
         longHistory = LiveStats.emptyHistory(LiveStats.longCount)
     }
