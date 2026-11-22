@@ -115,8 +115,9 @@ struct StatusPopoverView: View {
                 Text("Режим")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                // The getter can run after the list emptied on disconnect: never subscript it.
                 Picker("", selection: Binding(
-                    get: { state.modeList.first { $0.lowercased() == state.mode.lowercased() } ?? state.modeList[0] },
+                    get: { state.modeList.first { $0.lowercased() == state.mode.lowercased() } ?? state.modeList.first ?? "" },
                     set: { mode in Task { await state.setMode(mode) } })) {
                     ForEach(state.modeList, id: \.self) { Text(modeTitle($0)).tag($0) }
                 }
