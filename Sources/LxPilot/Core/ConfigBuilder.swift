@@ -169,6 +169,48 @@ extension ConfigBuilder {
     }
 }
 
+// MARK: - Node description
+
+extension ConfigBuilder {
+    /// What the UI says about an outbound or endpoint: protocol, transport, TLS, server.
+    static func nodeInfo(_ config: JSON, tag: String, fallbackType: String? = nil) -> CurrentNode {
+        let outbound = outboundsAndEndpoints(config).first { ($0["tag"] as? String) == tag }
+        let tls = outbound?["tls"] as? JSON
+        // Endpoints (WireGuard) keep the address in their first peer.
+        let peer = (outbound?["peers"] as? [JSON])?.first
+        return CurrentNode(
+            tag: tag,
+            type: outbound?["type"] as? String ?? fallbackType ?? "?",
+            transport: (outbound?["transport"] as? JSON)?["type"] as? String,
+            tls: tls?["enabled"] as? Bool ?? false,
+            reality: ((tls?["reality"] as? JSON)?["enabled"] as? Bool) ?? false,
+            server: (outbound?["server"] as? String) ?? (peer?["address"] as? String),
+            port: ((outbound?["server_port"] as? NSNumber) ?? (peer?["port"] as? NSNumber))?.intValue)
+    }
+
+    /// Follows the proxy tag down through groups using `next` (the core's `now`, or the config's
+    /// `default`/first member when the core is not running) until it reaches a node.
+    static func resolveExit(_ config: JSON, next: (String) -> String?) -> String? {
+        guard var tag = proxyOutboundTag(config) else { return nil }
+        var hops = 0
+        while hops < 8, let following = next(tag), !following.isEmpty, following != tag {
+            tag = following
+            hops += 1
+        }
+        return tag
+    }
+
+    /// The node a fresh start would use, without the core: groups resolve by `default`, else first member.
+    static func plannedExit(_ config: JSON) -> String? {
+        let all = outboundsAndEndpoints(config)
+        return resolveExit(config) { tag in
+            guard let group = all.first(where: { ($0["tag"] as? String) == tag }),
+                  ["selector", "urltest"].contains((group["type"] as? String) ?? "") else { return nil }
+            return (group["default"] as? String) ?? (group["outbounds"] as? [String])?.first
+        }
+    }
+}
+
 // MARK: - Per-app routing
 
 extension ConfigBuilder {

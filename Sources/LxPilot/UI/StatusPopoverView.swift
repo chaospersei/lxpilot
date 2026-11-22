@@ -33,10 +33,21 @@ struct StatusPopoverView: View {
                     connectionsSection
                 }
             } else {
-                HStack(spacing: 8) {
-                    Circle().fill(Color.gray).frame(width: 8, height: 8)
-                    Text("Ядро остановлено")
-                        .font(.system(size: 12, weight: .semibold))
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Circle().fill(Color.gray).frame(width: 8, height: 8)
+                        Text("Ядро остановлено")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    if let planned = state.plannedNode {
+                        row("Подключится к", planned.tag)
+                        row("Протокол", planned.protocolText)
+                        row("Сервер", planned.serverText)
+                    } else {
+                        Text(state.currentProfile == nil ? "Профиль не выбран" : "В профиле нет узлов")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

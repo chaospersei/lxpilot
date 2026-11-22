@@ -112,26 +112,26 @@ final class AppState: ObservableObject {
     }
 
     var currentNode: CurrentNode? {
-        guard isRunning, let config = activeConfig, var tag = ConfigBuilder.proxyOutboundTag(config) else { return nil }
-        var hops = 0
-        while hops < 8, let group = groups.first(where: { $0.name == tag }), !group.now.isEmpty, group.now != tag {
-            tag = group.now
-            hops += 1
-        }
-        let outbound = ConfigBuilder.outboundsAndEndpoints(config).first { ($0["tag"] as? String) == tag }
-        let type = outbound?["type"] as? String ?? proxyTypes[tag] ?? "?"
-        let tls = outbound?["tls"] as? JSON
-        // Endpoints (WireGuard) keep the address in their first peer.
-        let peer = (outbound?["peers"] as? [JSON])?.first
-        return CurrentNode(
-            tag: tag,
-            type: type,
-            transport: (outbound?["transport"] as? JSON)?["type"] as? String,
-            tls: tls?["enabled"] as? Bool ?? false,
-            reality: ((tls?["reality"] as? JSON)?["enabled"] as? Bool) ?? false,
-            server: (outbound?["server"] as? String) ?? (peer?["address"] as? String),
-            port: ((outbound?["server_port"] as? NSNumber) ?? (peer?["port"] as? NSNumber))?.intValue)
+        guard isRunning, let config = activeConfig else { return nil }
+        guard let tag = ConfigBuilder.resolveExit(config, next: { tag in groups.first { $0.name == tag }?.now }) else { return nil }
+        return ConfigBuilder.nodeInfo(config, tag: tag, fallbackType: proxyTypes[tag])
     }
+
+    /// Stopped: the node the next start would use, from the profile and the current settings
+    /// (groups by their `default`; the core's remembered selection is unknown until it runs).
+    var plannedNode: CurrentNode? {
+        guard !isRunning, let profile = currentProfile else { return nil }
+        let key = "\(profile.id)|\(profile.updatedAt.timeIntervalSince1970)|\(settings.autoSelector)|\(settings.manageInbounds)"
+        if let cached = plannedCache, cached.key == key { return cached.node }
+        var node: CurrentNode?
+        if let stored = storedProfileConfig {
+            let config = ConfigBuilder.overlay(stored, settings: settings)
+            node = ConfigBuilder.plannedExit(config).map { ConfigBuilder.nodeInfo(config, tag: $0) }
+        }
+        plannedCache = (key, node)
+        return node
+    }
+    private var plannedCache: (key: String, node: CurrentNode?)?
 
     /// Tags whose traffic does not go through a proxy: direct, block and DNS outbounds of the running config.
     var nonProxyOutboundTags: Set<String> {

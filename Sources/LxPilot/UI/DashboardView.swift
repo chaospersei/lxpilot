@@ -111,7 +111,7 @@ struct CurrentProxyCard: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        let node = state.currentNode
+        let node = state.currentNode ?? state.plannedNode
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Circle()
@@ -137,11 +137,19 @@ struct CurrentProxyCard: View {
                 .disabled(!state.isRunning || state.probing || state.ipLoading)
                 .help("Проверить заново: запрос по HTTPS через прокси и внешний IP")
             }
-            Text(node?.tag ?? (state.isRunning ? "…" : "Ядро не запущено"))
-                .font(.system(size: 14, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 6) {
+                Text(node?.tag ?? (state.isRunning ? "…" : "Ядро не запущено"))
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !state.isRunning, node != nil {
+                    Text("при подключении")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
             row("Протокол", node?.protocolText ?? "—")
+            if !state.isRunning, let node { row("Сервер", node.serverText) }
             row("IP", ipText)
             row("Задержка", latencyText, color: latencyColor)
         }
