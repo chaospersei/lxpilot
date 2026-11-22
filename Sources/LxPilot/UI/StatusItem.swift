@@ -87,7 +87,9 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
         let popover = NSPopover()
         popover.behavior = .applicationDefined   // never steals focus, closes only on our say-so
         popover.animates = true
-        popover.contentViewController = NSHostingController(rootView: content)
+        let hosting = NSHostingController(rootView: content)
+        hosting.sizingOptions = [.preferredContentSize]   // the popover takes the view's own size, no clipping
+        popover.contentViewController = hosting
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         self.popover = popover
         state.setPopoverVisible(true)

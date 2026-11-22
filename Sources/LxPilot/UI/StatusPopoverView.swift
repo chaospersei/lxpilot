@@ -41,7 +41,8 @@ struct StatusPopoverView: View {
             }
         }
         .padding(14)
-        .frame(width: 380)
+        .frame(width: 400)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var chart: some View {
@@ -66,8 +67,8 @@ struct StatusPopoverView: View {
                 AxisGridLine()
                 AxisValueLabel {
                     if let index = value.as(Int.self) {
-                        let minutesAgo = (count - 1 - index) / 60
-                        Text(index == count - 1 ? "сейчас" : "−\(minutesAgo) мин")
+                        let minutesAgo = Int((Double(count - 1 - index) / 60).rounded())
+                        Text(minutesAgo == 0 ? "сейчас" : "−\(minutesAgo) мин")
                             .font(.system(size: 9))
                     }
                 }
@@ -88,37 +89,43 @@ struct StatusPopoverView: View {
 
     /// Connect / disconnect and the routing mode, so the common actions need no window.
     private var controls: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            // The same glass start/stop as the window's big button, shrunk to a 30 pt disc.
             Button {
                 Task { await state.toggle() }
             } label: {
-                HStack(spacing: 6) {
+                Group {
                     if state.isBusy {
                         ProgressView().controlSize(.mini)
                     } else {
                         Image(systemName: state.isRunning ? "stop.fill" : "play.fill")
+                            .font(.system(size: 11, weight: .bold))
                     }
-                    Text(state.isRunning ? "Отключиться" : "Подключиться")
                 }
-                .frame(minWidth: 110)
+                .foregroundStyle(Color.white)
+                .frame(width: 30, height: 30)
+                .glassEffect(.regular.tint(state.isRunning ? Color.secondary : state.accent).interactive(), in: .circle)
+                .contentShape(Circle())
             }
-            .buttonStyle(.borderedProminent)
-            .tint(state.isRunning ? Color.secondary : state.accent)
-            .controlSize(.small)
+            .buttonStyle(.plain)
             .disabled(state.isBusy)
+            .help(state.isRunning ? "Отключиться" : "Подключиться")
 
             if state.isRunning, !state.modeList.isEmpty {
+                Text("Режим")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 Picker("", selection: Binding(
                     get: { state.modeList.first { $0.lowercased() == state.mode.lowercased() } ?? state.modeList[0] },
                     set: { mode in Task { await state.setMode(mode) } })) {
                     ForEach(state.modeList, id: \.self) { Text(modeTitle($0)).tag($0) }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .labelsHidden()
                 .controlSize(.small)
-            } else {
-                Spacer()
+                .frame(maxWidth: 200)
             }
+            Spacer(minLength: 0)
         }
     }
 
