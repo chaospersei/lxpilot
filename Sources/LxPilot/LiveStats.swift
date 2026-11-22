@@ -13,16 +13,22 @@ final class LiveStats: ObservableObject {
     @Published var connections: [ClashConnection] = []
     /// Always exactly 60 samples (zero-filled): the chart and the menu bar graph rely on it.
     @Published var speedHistory: [SpeedSample] = LiveStats.emptyHistory()
+    /// Five minutes for the status item popover, same samples, longer window.
+    @Published var longHistory: [SpeedSample] = LiveStats.emptyHistory(LiveStats.longCount)
+    static let longCount = 300
     private var sampleCounter = 60
 
-    static func emptyHistory() -> [SpeedSample] {
-        (0..<60).map { SpeedSample(id: $0, up: 0, down: 0) }
+    static func emptyHistory(_ count: Int = 60) -> [SpeedSample] {
+        (0..<count).map { SpeedSample(id: $0, up: 0, down: 0) }
     }
 
     func appendSample(up: Double, down: Double) {
         sampleCounter += 1
-        speedHistory.append(SpeedSample(id: sampleCounter, up: up, down: down))
+        let sample = SpeedSample(id: sampleCounter, up: up, down: down)
+        speedHistory.append(sample)
         if speedHistory.count > 60 { speedHistory.removeFirst(speedHistory.count - 60) }
+        longHistory.append(sample)
+        if longHistory.count > LiveStats.longCount { longHistory.removeFirst(longHistory.count - LiveStats.longCount) }
     }
 
     func reset() {
@@ -34,6 +40,7 @@ final class LiveStats: ObservableObject {
         connectionCount = 0
         connections = []
         speedHistory = LiveStats.emptyHistory()
+        longHistory = LiveStats.emptyHistory(LiveStats.longCount)
     }
 }
 

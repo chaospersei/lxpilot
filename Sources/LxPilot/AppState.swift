@@ -117,12 +117,16 @@ final class AppState: ObservableObject {
         let outbound = ConfigBuilder.outboundsAndEndpoints(config).first { ($0["tag"] as? String) == tag }
         let type = outbound?["type"] as? String ?? proxyTypes[tag] ?? "?"
         let tls = outbound?["tls"] as? JSON
+        // Endpoints (WireGuard) keep the address in their first peer.
+        let peer = (outbound?["peers"] as? [JSON])?.first
         return CurrentNode(
             tag: tag,
             type: type,
             transport: (outbound?["transport"] as? JSON)?["type"] as? String,
             tls: tls?["enabled"] as? Bool ?? false,
-            reality: ((tls?["reality"] as? JSON)?["enabled"] as? Bool) ?? false)
+            reality: ((tls?["reality"] as? JSON)?["enabled"] as? Bool) ?? false,
+            server: (outbound?["server"] as? String) ?? (peer?["address"] as? String),
+            port: ((outbound?["server_port"] as? NSNumber) ?? (peer?["port"] as? NSNumber))?.intValue)
     }
 
     // MARK: - Launch / quit

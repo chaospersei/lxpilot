@@ -175,6 +175,7 @@ struct ToolsView: View {
             Toggle("Запускать при входе в систему", isOn: Binding(
                 get: { launchAtLogin },
                 set: { value in setLaunchAtLogin(value) }))
+            Toggle("Поповер с графиком при наведении на значок", isOn: $state.settings.hoverPopover)
             Picker("Значок в строке меню", selection: $state.settings.menuBarStyle) {
                 ForEach(MenuBarStyle.allCases) { style in
                     Text(style.title).tag(style)

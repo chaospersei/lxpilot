@@ -94,6 +94,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window?.setContentSize(NSSize(width: 1000, height: 650))
             try? await Task.sleep(nanoseconds: 500_000_000)
             NSLog("selftest: buttons after resize %@", frames())
+            statusItem?.simulateHover(true)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            NSLog("selftest: popover after hover-in %d (expected 1)", statusItem?.popoverShown ?? false)
+            statusItem?.simulateHover(false)
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            NSLog("selftest: popover after hover-out %d (expected 0)", statusItem?.popoverShown ?? false)
         }
     }
     #endif

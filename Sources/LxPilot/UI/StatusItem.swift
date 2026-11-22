@@ -6,31 +6,39 @@ import SwiftUI
 /// control-click) opens the menu. MenuBarExtra cannot tell clicks apart, and the app has no Dock
 /// icon, so this click is the one way back to the window.
 @MainActor
-final class StatusItemController: NSObject, NSMenuDelegate {
+final class StatusItemController: NSResponder, NSMenuDelegate {
     private let item: NSStatusItem
     private let state: AppState
-    private let menu = NSMenu()
+    private let statusMenu = NSMenu()
     private var subscriptions: Set<AnyCancellable> = []
     private var symbolShown = ""
     private var lastToggle = Date.distantPast
+    private var popover: NSPopover?
+    private var hoverTask: Task<Void, Never>?
+    private var overButton = false
+    private var overPopover = false
 
     init(state: AppState) {
         self.state = state
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
-        menu.delegate = self
+        statusMenu.delegate = self
         if let button = item.button {
             button.target = self
             button.action = #selector(clicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.imagePosition = .imageOnly
             button.toolTip = "LxPilot — клик: окно, правый клик: меню"
+            button.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                                  owner: self, userInfo: nil))
         }
         // objectWillChange fires before the change; hopping through the main queue reads the new values.
         state.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.render() }.store(in: &subscriptions)
         state.live.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.render() }.store(in: &subscriptions)
         render()
     }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private func render() {
         guard let button = item.button else { return }
@@ -51,11 +59,57 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    // MARK: Hover popover
+
+    override func mouseEntered(with event: NSEvent) { hover(button: true) }
+    override func mouseExited(with event: NSEvent) { hover(button: false) }
+
+    /// The popover opens after the pointer rests on the item for a moment and closes once it has
+    /// left both the item and the popover; the grace period lets the pointer travel between them.
+    private func hover(button: Bool? = nil, popover: Bool? = nil) {
+        if let button { overButton = button }
+        if let popover { overPopover = popover }
+        hoverTask?.cancel()
+        let shouldShow = overButton || overPopover
+        hoverTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: shouldShow ? 450_000_000 : 300_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if shouldShow { self.showPopover() } else { self.closePopover() }
+        }
+    }
+
+    private func showPopover() {
+        guard state.settings.hoverPopover, let button = item.button, popover?.isShown != true else { return }
+        let content = StatusPopoverView()
+            .environmentObject(state)
+            .environmentObject(state.live)
+            .onHover { [weak self] inside in self?.hover(popover: inside) }
+        let popover = NSPopover()
+        popover.behavior = .applicationDefined   // never steals focus, closes only on our say-so
+        popover.animates = true
+        popover.contentViewController = NSHostingController(rootView: content)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        self.popover = popover
+    }
+
+    private func closePopover() {
+        popover?.performClose(nil)
+        popover = nil
+        overPopover = false
+    }
+
+    #if DEBUG
+    func simulateHover(_ inside: Bool) { hover(button: inside) }
+    var popoverShown: Bool { popover?.isShown ?? false }
+    #endif
+
     @objc private func clicked() {
         // One click can reach us more than once (the status button also reports the press);
         // only a left mouse-up toggles, and never twice within a third of a second — a down+up
         // pair would otherwise hide the window and bring it straight back.
         guard let event = NSApp.currentEvent else { return }
+        hoverTask?.cancel()
+        closePopover()
         switch event.type {
         case .rightMouseUp:
             showMenu()
@@ -82,7 +136,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     #endif
 
     private func showMenu() {
-        item.menu = menu
+        item.menu = statusMenu
         item.button?.performClick(nil)   // tracks the menu synchronously
         item.menu = nil                  // the next left click is ours again
     }

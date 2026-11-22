@@ -216,6 +216,8 @@ struct AppSettings: Codable, Equatable {
     var appearance: AppearanceMode = .system
     var accent: AccentChoice = .indigo
     var menuBarStyle: MenuBarStyle = .speedGraph
+    /// Popover with the 5-minute chart and the node card when the pointer rests on the status item.
+    var hoverPopover = true
     var appRules: [AppRule] = []
     var routing = RoutingConfig()
     /// Talk to the system LaunchDaemon of sing-box-lx (root, mTLS) instead of running a core process.
@@ -253,6 +255,7 @@ struct AppSettings: Codable, Equatable {
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? d.appearance
         accent = try c.decodeIfPresent(AccentChoice.self, forKey: .accent) ?? d.accent
         menuBarStyle = try c.decodeIfPresent(MenuBarStyle.self, forKey: .menuBarStyle) ?? d.menuBarStyle
+        hoverPopover = try c.decodeIfPresent(Bool.self, forKey: .hoverPopover) ?? d.hoverPopover
         appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
         routing = try c.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? d.routing
         useSystemService = try c.decodeIfPresent(Bool.self, forKey: .useSystemService) ?? d.useSystemService
@@ -356,6 +359,13 @@ struct CurrentNode: Equatable {
     let transport: String?
     let tls: Bool
     let reality: Bool
+    var server: String?
+    var port: Int?
+
+    var serverText: String {
+        guard let server, !server.isEmpty else { return "—" }
+        return port.map { "\(server):\($0)" } ?? server
+    }
 
     var protocolText: String {
         let names = ["vless": "VLESS", "vmess": "VMess", "trojan": "Trojan", "shadowsocks": "Shadowsocks",
