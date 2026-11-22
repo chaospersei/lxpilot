@@ -22,6 +22,10 @@ struct StatusPopoverView: View {
 
             Divider()
 
+            controls
+
+            Divider()
+
             if state.isRunning, let node = state.currentNode {
                 nodeCard(node)
                 if state.settings.popoverConnections {
@@ -80,6 +84,42 @@ struct StatusPopoverView: View {
             }
         }
         .chartLegend(.hidden)
+    }
+
+    /// Connect / disconnect and the routing mode, so the common actions need no window.
+    private var controls: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await state.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    if state.isBusy {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: state.isRunning ? "stop.fill" : "play.fill")
+                    }
+                    Text(state.isRunning ? "Отключиться" : "Подключиться")
+                }
+                .frame(minWidth: 110)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(state.isRunning ? Color.secondary : state.accent)
+            .controlSize(.small)
+            .disabled(state.isBusy)
+
+            if state.isRunning, !state.modeList.isEmpty {
+                Picker("", selection: Binding(
+                    get: { state.modeList.first { $0.lowercased() == state.mode.lowercased() } ?? state.modeList[0] },
+                    set: { mode in Task { await state.setMode(mode) } })) {
+                    ForEach(state.modeList, id: \.self) { Text(modeTitle($0)).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+            } else {
+                Spacer()
+            }
+        }
     }
 
     private func nodeCard(_ node: CurrentNode) -> some View {
