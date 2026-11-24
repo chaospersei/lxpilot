@@ -79,7 +79,8 @@ enum MenuBarRenderer {
 
     /// The same picture is handed back while nothing visible changed: AppKit re-snapshots the status
     /// item for every new image, which is the bulk of an idle app's CPU.
-    static func image(up: Double, down: Double, history: [SpeedSample], showGraph: Bool, linked: Bool) -> NSImage {
+    /// `alarm` paints the glyph red: one phase of the menu bar blink while the connection is faulted.
+    static func image(up: Double, down: Double, history: [SpeedSample], showGraph: Bool, linked: Bool, alarm: Bool = false) -> NSImage {
         let graphWidth = CGFloat(barCount) * (barWidth + barGap) - barGap
         let textX = AppIcon.traySize.width + iconGap
         let width = textX + textWidth + (showGraph ? 5 + graphWidth : 0)
@@ -88,7 +89,7 @@ enum MenuBarRenderer {
         let downs = showGraph ? barHeights(recent.map { $0.down }) : []
         let upText = compactSpeed(up)
         let downText = compactSpeed(down)
-        let key = "\(upText)|\(downText)|\(showGraph)|\(linked)|\(ups)|\(downs)"
+        let key = "\(upText)|\(downText)|\(showGraph)|\(linked)|\(alarm)|\(ups)|\(downs)"
         if key == cacheKey, let cached = cacheImage { return cached }
 
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
@@ -99,7 +100,7 @@ enum MenuBarRenderer {
                 cg.translateBy(x: 0, y: height)   // the glyph is designed top-down; this handler is bottom-up
                 cg.scaleBy(x: 1, y: -1)
                 AppIcon.drawGlyph(in: CGRect(x: 0, y: (height - icon.height) / 2, width: icon.width, height: icon.height),
-                                  linked: linked, color: NSColor.labelColor.cgColor, ctx: cg)
+                                  linked: linked, color: (alarm ? NSColor.systemRed : NSColor.labelColor).cgColor, ctx: cg)
                 cg.restoreGState()
             }
 

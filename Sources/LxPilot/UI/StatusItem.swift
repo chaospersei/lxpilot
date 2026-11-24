@@ -17,6 +17,8 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
     private var hoverTask: Task<Void, Never>?
     private var overButton = false
     private var overPopover = false
+    private var blinkTimer: Timer?
+    private var blinkOn = false
 
     init(state: AppState) {
         self.state = state
@@ -42,20 +44,48 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
 
     private func render() {
         guard let button = item.button else { return }
+        updateBlink()
+        let alarm = blinkTimer != nil && blinkOn
         switch state.settings.menuBarStyle {
         case .icon:
             // The link line shows only while connected.
-            let symbol = state.isRunning ? "linked" : "apart"
+            let symbol = (state.isRunning ? "linked" : "apart") + (alarm ? "+alarm" : "")
             guard symbol != symbolShown else { return }
             symbolShown = symbol
             button.image = AppIcon.glyph(linked: state.isRunning, size: 18)
+            button.contentTintColor = alarm ? .systemRed : nil
         case .speed, .speedGraph:
             symbolShown = ""
+            button.contentTintColor = nil
             let image = MenuBarRenderer.image(
                 up: state.live.upSpeed, down: state.live.downSpeed,
-                history: state.live.speedHistory, showGraph: state.settings.menuBarStyle == .speedGraph, linked: state.isRunning)
+                history: state.live.speedHistory, showGraph: state.settings.menuBarStyle == .speedGraph,
+                linked: state.isRunning, alarm: alarm)
             // The renderer hands back the same object while nothing changed; a new one costs a status bar snapshot.
             if button.image !== image { button.image = image }
+        }
+    }
+
+    /// While `connectionFault` holds, the glyph alternates between red and its normal colour twice
+    /// a second; the tooltip carries the reason. The timer exists only during a fault, so an idle
+    /// app pays nothing for it.
+    private func updateBlink() {
+        let fault = state.connectionFault
+        item.button?.toolTip = fault.map { "LxPilot — \($0)" } ?? "LxPilot — клик: окно, правый клик: меню"
+        if fault != nil {
+            guard blinkTimer == nil else { return }
+            blinkOn = true
+            blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.blinkOn.toggle()
+                    self.render()
+                }
+            }
+        } else if let timer = blinkTimer {
+            timer.invalidate()
+            blinkTimer = nil
+            blinkOn = false
         }
     }
 
@@ -104,6 +134,8 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
 
     #if DEBUG
     func simulateHover(_ inside: Bool) { hover(button: inside) }
+    var blinking: Bool { blinkTimer != nil }
+    var alarmShown: Bool { item.button?.contentTintColor == .systemRed || symbolShown.hasSuffix("+alarm") || blinkOn }
     var popoverShown: Bool { popover?.isShown ?? false }
     var hoverState: String { "button=\(overButton) popover=\(overPopover) mouse=\(NSEvent.mouseLocation)" }
     #endif

@@ -85,6 +85,14 @@ final class AppState: ObservableObject {
     var accent: Color { settings.accent.color }
     var isRunning: Bool { coreState == .running }
     var isBusy: Bool { coreState == .starting || coreState == .stopping }
+
+    /// The menu bar blinks red while this holds: the last start failed (or the core died), or the
+    /// core runs but the latency probe through it cannot reach the test URL.
+    var connectionFault: String? {
+        if case .failed(let message) = coreState { return message }
+        guard isRunning, let probe = proxyProbe, let error = probe.error else { return nil }
+        return "Проверка соединения не прошла: \(error)"
+    }
     var currentProfile: Profile? { profiles.first { $0.id == settings.selectedProfileID } }
     var needsRestart: Bool {
         guard isRunning, let running = runningSettings else { return false }
@@ -149,6 +157,10 @@ final class AppState: ObservableObject {
         bootstrapped = true
         await refreshVersion()
         await refreshServiceStatus()
+        #if DEBUG
+        // The window self-test must leave the core and the system proxy alone.
+        if ProcessInfo.processInfo.environment["LXPILOT_SELFTEST_WINDOW"] == "1" { return }
+        #endif
         if await adoptRunningCore() { return }
         // A previous run that crashed may have left the system proxy pointing at a dead port.
         if UserDefaults.standard.bool(forKey: AppState.proxyDirtyKey) {
@@ -630,8 +642,9 @@ final class AppState: ObservableObject {
             await refreshMode()
         }
         if now >= nextProbe {
-            nextProbe = now.addingTimeInterval(60)
             await probeProxy()
+            // A failed probe is rechecked sooner: the red menu bar should clear as soon as traffic flows again.
+            nextProbe = Date().addingTimeInterval(proxyProbe?.ok == false ? 15 : 60)
         }
         if popoverVisible, force || now >= nextResourceSample {
             nextResourceSample = now.addingTimeInterval(3)

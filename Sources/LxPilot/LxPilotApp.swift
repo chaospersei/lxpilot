@@ -100,6 +100,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem?.simulateHover(false)
             try? await Task.sleep(nanoseconds: 700_000_000)
             NSLog("selftest: popover after hover-out %d (expected 0; %@)", statusItem?.popoverShown ?? false, statusItem?.hoverState ?? "")
+            // A failed start must make the status item blink red until the state changes.
+            let state = AppState.shared
+            if state.coreState == .stopped {
+                state.coreState = .failed("selftest")
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                let first = statusItem?.alarmShown ?? false
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                let second = statusItem?.alarmShown ?? false
+                NSLog("selftest: fault blink — blinking=%d phases %d/%d (expected 1, phases differ)", statusItem?.blinking ?? false, first, second)
+                state.coreState = .stopped
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                NSLog("selftest: after clearing fault — blinking=%d alarm=%d (expected 0/0)", statusItem?.blinking ?? false, statusItem?.alarmShown ?? false)
+            } else {
+                NSLog("selftest: fault blink skipped, core state %@", "\(state.coreState)")
+            }
         }
     }
     #endif
