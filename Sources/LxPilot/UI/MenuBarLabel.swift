@@ -42,14 +42,16 @@ enum AppIcon {
         ctx.restoreGState()
     }
 
-    /// Template image of the glyph: takes the menu bar or accent colour.
-    static func glyph(linked: Bool, size: CGFloat) -> NSImage {
+    /// Template image of the glyph: takes the menu bar or accent colour. With `color` it is a plain
+    /// image in that colour instead: the status bar ignores `contentTintColor` on a template image,
+    /// so the red blink phase has to carry its colour itself.
+    static func glyph(linked: Bool, size: CGFloat, color: NSColor? = nil) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            drawGlyph(in: rect, linked: linked, color: .black, ctx: ctx)
+            drawGlyph(in: rect, linked: linked, color: (color ?? .black).cgColor, ctx: ctx)
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = color == nil
         return image
     }
 }

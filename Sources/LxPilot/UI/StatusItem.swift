@@ -52,11 +52,9 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
             let symbol = (state.isRunning ? "linked" : "apart") + (alarm ? "+alarm" : "")
             guard symbol != symbolShown else { return }
             symbolShown = symbol
-            button.image = AppIcon.glyph(linked: state.isRunning, size: 18)
-            button.contentTintColor = alarm ? .systemRed : nil
+            button.image = AppIcon.glyph(linked: state.isRunning, size: 18, color: alarm ? .systemRed : nil)
         case .speed, .speedGraph:
             symbolShown = ""
-            button.contentTintColor = nil
             let image = MenuBarRenderer.image(
                 up: state.live.upSpeed, down: state.live.downSpeed,
                 history: state.live.speedHistory, showGraph: state.settings.menuBarStyle == .speedGraph,
@@ -135,7 +133,7 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
     #if DEBUG
     func simulateHover(_ inside: Bool) { hover(button: inside) }
     var blinking: Bool { blinkTimer != nil }
-    var alarmShown: Bool { item.button?.contentTintColor == .systemRed || symbolShown.hasSuffix("+alarm") || blinkOn }
+    var alarmShown: Bool { symbolShown.hasSuffix("+alarm") || (item.button?.image?.isTemplate == false && blinkOn) }
     var popoverShown: Bool { popover?.isShown ?? false }
     var hoverState: String { "button=\(overButton) popover=\(overPopover) mouse=\(NSEvent.mouseLocation)" }
     #endif
