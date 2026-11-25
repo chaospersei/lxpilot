@@ -6,7 +6,7 @@
 
 ## Установка
 
-Нужна macOS 26 или новее (Apple silicon или Intel).
+Нужны macOS 26 или новее и Mac на Apple silicon: готовые сборки выпускаются только под arm64.
 
 1. Скачайте `LxPilot-<версия>.dmg` со страницы [релизов](../../releases/latest) и перетащите приложение в «Программы».
 2. Сборка подписана ad-hoc и не нотаризована, поэтому Gatekeeper её не пустит. Снимите карантин:
@@ -61,7 +61,7 @@ open build/LxPilot.app
 
 Для разработки: `open Package.swift` (откроется в Xcode) или `swift run`.
 
-Релизные файлы собирает `Tools/package-release.sh <версия>`: универсальный бинарь (arm64 + x86_64), `dist/LxPilot-<версия>.dmg`, `.zip` и `SHA256SUMS`.
+Релизные файлы собирает `Tools/package-release.sh <версия>`: сборка под Apple silicon (arm64), `dist/LxPilot-<версия>.dmg`, `.zip` и `SHA256SUMS`. Под Intel приложение можно собрать самому: `ARCH=x86_64 ./build-app.sh`.
 
 ## Выпуск релиза
 

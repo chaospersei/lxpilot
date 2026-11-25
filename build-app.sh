@@ -2,14 +2,14 @@
 # Собирает LxPilot.app из Swift-пакета. Нужны macOS 26+ и Xcode 26+ (Swift 6.2+).
 #
 #   ./build-app.sh                  под архитектуру этого Mac → build/LxPilot.app
-#   UNIVERSAL=1 ./build-app.sh      универсальная сборка (arm64 + x86_64)
+#   ARCH=arm64 ./build-app.sh       под заданную архитектуру (релизы собираются только под arm64)
 #   VERSION=0.2.0 BUILD=42 ...      версия в Info.plist (по умолчанию — как в Resources/Info.plist)
 #   OUT=dist ./build-app.sh         другой каталог вместо build/
 set -euo pipefail
 cd "$(dirname "$0")"
 
 ARCH_FLAGS=()
-if [ "${UNIVERSAL:-0}" = "1" ]; then ARCH_FLAGS=(--arch arm64 --arch x86_64); fi
+if [ -n "${ARCH:-}" ]; then ARCH_FLAGS=(--arch "$ARCH"); fi
 
 swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
 BIN_DIR="$(swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"

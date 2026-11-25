@@ -1,5 +1,5 @@
 #!/bin/bash
-# Собирает универсальный LxPilot.app и упаковывает его для релиза:
+# Собирает LxPilot.app под Apple silicon (arm64) и упаковывает его для релиза:
 #   dist/LxPilot-<версия>.dmg, dist/LxPilot-<версия>.zip, dist/SHA256SUMS
 #
 #   Tools/package-release.sh 0.2.0 [номер сборки]
@@ -13,11 +13,16 @@ NAME="LxPilot-$VERSION"
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
-UNIVERSAL=1 VERSION="$VERSION" BUILD="$BUILD" OUT="$DIST/app" ./build-app.sh
+ARCH=arm64 VERSION="$VERSION" BUILD="$BUILD" OUT="$DIST/app" ./build-app.sh
 
 APP="$DIST/app/LxPilot.app"
-echo "== архитектуры"
-lipo -archs "$APP/Contents/MacOS/LxPilot"
+echo "== архитектура"
+ARCHS="$(lipo -archs "$APP/Contents/MacOS/LxPilot")"
+echo "$ARCHS"
+if [ "$ARCHS" != "arm64" ]; then
+    echo "Ожидалась сборка только под arm64" >&2
+    exit 1
+fi
 echo "== подпись"
 codesign --verify --strict --verbose=2 "$APP"
 
