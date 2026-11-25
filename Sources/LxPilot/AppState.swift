@@ -80,6 +80,10 @@ final class AppState: ObservableObject {
     /// The network whose rule was last evaluated: a rule acts on joining, not continuously, so a
     /// manual start or stop holds until the network changes.
     private var appliedSSID: String?
+    /// Routing mode: a hint came and the network has not been named since, so direct routes are off.
+    private var wifiPending = false
+    /// Bumped by every hint; a lookup that started before the latest one is stale.
+    private var wifiGeneration = 0
 
     private static let proxyDirtyKey = "systemProxyDirty"
 
@@ -172,10 +176,11 @@ final class AppState: ObservableObject {
         // The window self-test must leave the core and the system proxy alone.
         if ProcessInfo.processInfo.environment["LXPILOT_SELFTEST_WINDOW"] == "1" { return }
         #endif
-        wifi.start { [weak self] in self?.networkMayHaveChanged() }
+        wifi.start { [weak self] in self?.wifiHint() }
         // With rules present the network decides before auto-connect does: a "disconnect" network
         // must not see the VPN come up first. Without rules the lookup runs on the side.
         var rule: WiFiRule?
+        let routing = settings.wifiMode == .routing
         if wifiRulesActive {
             let ssid = await WiFiMonitor.currentSSID()
             currentSSID = ssid
@@ -185,7 +190,11 @@ final class AppState: ObservableObject {
             networkMayHaveChanged()
         }
         if await adoptRunningCore() {
-            if let rule, rule.action == .disconnect { await applyWiFiRule(rule) }
+            if routing {
+                await syncWiFiRouting()
+            } else if let rule, rule.action == .disconnect {
+                await applyWiFiRule(rule)
+            }
             return
         }
         // A previous run that crashed may have left the system proxy pointing at a dead port.
@@ -195,7 +204,7 @@ final class AppState: ObservableObject {
         }
         guard coreInstalled, currentProfile != nil else { return }
         if let rule {
-            await applyWiFiRule(rule)
+            if routing { await applyWiFiRouting(mayStart: true) } else { await applyWiFiRule(rule) }
         } else if settings.autoConnect {
             await start()
         }
@@ -224,6 +233,9 @@ final class AppState: ObservableObject {
         pollTask?.cancel()
         logTask?.cancel()
         let keep = isRunning && settings.keepVPNOnQuit && core.viaService
+        // Nobody watches the network after we quit, and the core remembers its mode across restarts:
+        // direct routes must not outlive the app.
+        if isRunning, mode == ConfigBuilder.wifiDirectMode { clash.setModeSync(wifiReturnMode) }
         core.stopSync(keepServiceCore: keep)
         // With the core kept, the proxy stays too; the dirty flag then tells the next launch to adopt rather than clean up.
         if !keep, UserDefaults.standard.bool(forKey: AppState.proxyDirtyKey) {
@@ -265,6 +277,7 @@ final class AppState: ObservableObject {
             runningSettings = snapshot
             coreState = .running
             startedAt = Date()
+            await syncWiFiRouting()   // the core restores its last clash mode from the cache file
             if snapshot.systemProxyEnabled { await applySystemProxy(true) }
             beginMonitoring()   // the first proxy refresh triggers the IP lookup and the latency probe
         } catch {
@@ -279,6 +292,9 @@ final class AppState: ObservableObject {
             coreState = .stopped
             return
         }
+        guard coreState == .running else { return }
+        // The cache file keeps the clash mode: leave a normal one behind for the next start.
+        await setWiFiDirect(false)
         guard coreState == .running else { return }
         coreState = .stopping
         endMonitoring()
@@ -307,6 +323,7 @@ final class AppState: ObservableObject {
                 delays = [:]
                 await refreshProxies()
                 await refreshMode()
+                await syncWiFiRouting()
             } catch {
                 alert = error.localizedDescription
             }
@@ -424,8 +441,21 @@ final class AppState: ObservableObject {
         settings.wifiDefault != nil || settings.wifiRules.contains { $0.enabled }
     }
 
-    /// Called on every hint from `WiFiMonitor`. Hints come in bursts while the Mac associates, and
-    /// the name is not known until it settles, so the lookup waits a moment and the last hint wins.
+    /// A hint from `WiFiMonitor`. In routing mode the direct routes are dropped at once, before the
+    /// network is named: for those seconds traffic takes the VPN routes instead of leaving in the open.
+    private func wifiHint() {
+        wifiGeneration += 1
+        if settings.wifiMode == .routing {
+            wifiPending = true
+            if isRunning, mode == ConfigBuilder.wifiDirectMode || mode.isEmpty {
+                Task { await self.setWiFiDirect(false) }
+            }
+        }
+        networkMayHaveChanged()
+    }
+
+    /// Hints come in bursts while the Mac associates, and the name is not known until it settles,
+    /// so the lookup waits a moment and the last hint wins.
     func networkMayHaveChanged() {
         wifiTask?.cancel()
         wifiTask = Task { [weak self] in
@@ -436,12 +466,22 @@ final class AppState: ObservableObject {
     }
 
     /// Looks the network up and, if it is a different one than last time, applies its rule.
+    /// Routing mode also re-applies after any hint, since the hint took the direct routes away.
     func refreshWiFi() async {
+        let generation = wifiGeneration
         let ssid = await WiFiMonitor.currentSSID()
+        // A hint during the lookup makes the name stale; that hint has a lookup of its own coming.
+        guard generation == wifiGeneration else { return }
         if ssid != currentSSID { currentSSID = ssid }
-        guard ssid != appliedSSID else { return }
+        let changed = ssid != appliedSSID
+        guard changed || wifiPending else { return }
         appliedSSID = ssid
-        if let rule = wifiRule(for: ssid) { await applyWiFiRule(rule) }
+        wifiPending = false
+        if settings.wifiMode == .routing {
+            await applyWiFiRouting(mayStart: changed)
+        } else if changed, let rule = wifiRule(for: ssid) {
+            await applyWiFiRule(rule)
+        }
     }
 
     private func applyWiFiRule(_ rule: WiFiRule) async {
@@ -465,6 +505,94 @@ final class AppState: ObservableObject {
         }
     }
 
+    // Routing mode: the core stays up on every network, and a "disconnect" network switches it to
+    // the clash mode that sends everything out directly.
+
+    /// The mode to leave the direct one for: what was in force before it, else the first other mode.
+    private var wifiReturnMode: String {
+        let direct = ConfigBuilder.wifiDirectMode
+        if let saved = settings.wifiSavedMode, saved != direct, modeList.isEmpty || modeList.contains(saved) { return saved }
+        return modeList.first(where: { $0 != direct }) ?? "Rule"
+    }
+
+    private func setWiFiDirect(_ on: Bool) async {
+        guard isRunning else { return }
+        let direct = ConfigBuilder.wifiDirectMode
+        if mode.isEmpty || modeList.isEmpty { await refreshMode() }
+        do {
+            if on {
+                guard mode != direct, modeList.contains(direct) else { return }
+                if !mode.isEmpty { settings.wifiSavedMode = mode }
+                try await clash.setMode(direct)
+                mode = direct
+                // A hint that landed during the request saw the old mode and left it alone.
+                if wifiPending { await setWiFiDirect(false) }
+            } else {
+                guard mode == direct else { return }
+                try await clash.setMode(wifiReturnMode)
+                // The core ignores a mode it does not know without an error, so look again.
+                await refreshMode()
+                if mode == direct, let other = modeList.first(where: { $0 != direct }) {
+                    try await clash.setMode(other)
+                    mode = other
+                }
+            }
+        } catch {
+            alert = error.localizedDescription
+        }
+    }
+
+    /// Makes the running core's routes match the network the Mac is on. Until the network is named
+    /// the answer is "not direct".
+    private func syncWiFiRouting() async {
+        guard isRunning else { return }
+        guard settings.wifiMode == .routing else { return }
+        await refreshMode()
+        let direct = !wifiPending && wifiRule(for: currentSSID)?.action == .disconnect
+        await setWiFiDirect(direct)
+    }
+
+    /// `mayStart`: the network or its rule has just changed, so a stopped core is started; a mere
+    /// re-check after a hint must not undo a manual stop.
+    private func applyWiFiRouting(mayStart: Bool) async {
+        for _ in 0..<120 where isBusy { try? await Task.sleep(nanoseconds: 500_000_000) }
+        let rule = wifiRule(for: currentSSID)
+        let time = Date().formatted(date: .omitted, time: .shortened)
+        if let rule, mayStart, !isRunning {
+            guard coreInstalled, currentProfile != nil else { return }
+            await start()   // ends with `syncWiFiRouting`
+            guard isRunning else {
+                wifiNote = "\(time) — сеть «\(rule.ssid)»: запустить VPN по правилу не удалось."
+                return
+            }
+        } else {
+            await syncWiFiRouting()
+        }
+        guard let rule, isRunning else { return }
+        let direct = mode == ConfigBuilder.wifiDirectMode
+        switch rule.action {
+        case .disconnect:
+            wifiNote = direct ? "\(time) — сеть «\(rule.ssid)»: все маршруты идут напрямую."
+                              : "\(time) — сеть «\(rule.ssid)»: перевести маршруты напрямую не удалось."
+        case .connect:
+            wifiNote = "\(time) — сеть «\(rule.ssid)»: маршруты идут через VPN."
+        }
+    }
+
+    /// Switches between stopping the core and rerouting it; the current network's rule acts at once.
+    func setWiFiMode(_ newMode: WiFiMode) async {
+        guard settings.wifiMode != newMode else { return }
+        if newMode == .power { await setWiFiDirect(false) }   // the mode's rule is about to leave the config
+        settings.wifiMode = newMode
+        wifiPending = false
+        await reload()
+        if newMode == .routing {
+            await applyWiFiRouting(mayStart: true)
+        } else if let rule = wifiRule(for: currentSSID) {
+            await applyWiFiRule(rule)
+        }
+    }
+
     /// Stores the rules. A rule that now applies to the network the Mac is on acts at once:
     /// adding "отключать" for the current network and seeing nothing happen would read as broken.
     func setWiFiRules(_ rules: [WiFiRule]) async {
@@ -481,7 +609,12 @@ final class AppState: ObservableObject {
         let before = wifiRule(for: currentSSID)
         change(&settings)
         let after = wifiRule(for: currentSSID)
-        if let after, after.action != before?.action { await applyWiFiRule(after) }
+        guard after?.action != before?.action else { return }
+        if settings.wifiMode == .routing {
+            await applyWiFiRouting(mayStart: true)
+        } else if let after {
+            await applyWiFiRule(after)
+        }
     }
 
     func addWiFiRule(ssid: String, action: WiFiAction = .disconnect) async {

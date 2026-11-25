@@ -86,6 +86,7 @@ enum ConfigBuilder {
         if settings.routing.replaceProfileRules { config = withoutConvertibleRules(config) }
         config = withRouting(config, routing: settings.routing)
         config = withAppRules(config, rules: settings.appRules.filter { $0.enabled })
+        if settings.wifiMode == .routing { config = withWiFiDirectMode(config) }
 
         guard settings.manageInbounds else { return config }
 
@@ -292,6 +293,40 @@ extension ConfigBuilder {
             inserted.append(rule)
         }
         return insertRules(inserted, into: config)
+    }
+}
+
+// MARK: - Wi-Fi direct mode
+
+extension ConfigBuilder {
+    /// Clash mode that sends everything out directly; the Wi-Fi rules switch to it on a "direct" network.
+    static let wifiDirectMode = "Напрямую (Wi-Fi)"
+    static let wifiLocalDNSTag = "lxpilot-dns-local"
+
+    /// A clash mode is the one switch the core flips at once, without a reload. Its rule goes in
+    /// last, so it lands ahead of the per-app rules: on a "direct" network nothing is proxied.
+    /// DNS follows it to a local server, or TUN lookups would still travel through the proxy.
+    static func withWiFiDirectMode(_ config: JSON) -> JSON {
+        var config = config
+        let directTag = ensureDirectTag(&config)
+        let rule: JSON = ["clash_mode": wifiDirectMode, "outbound": directTag]
+        config = insertRules([rule], into: config)
+
+        guard var dns = config["dns"] as? JSON, var servers = dns["servers"] as? [JSON], !servers.isEmpty else { return config }
+        var localTag = servers.first(where: { ($0["type"] as? String) == "local" })?["tag"] as? String
+        if localTag == nil {
+            let local: JSON = ["type": "local", "tag": wifiLocalDNSTag]
+            servers.append(local)
+            dns["servers"] = servers
+            localTag = wifiLocalDNSTag
+        }
+        guard let localTag else { return config }
+        var dnsRules = dns["rules"] as? [JSON] ?? []
+        let dnsRule: JSON = ["clash_mode": wifiDirectMode, "server": localTag]
+        dnsRules.insert(dnsRule, at: 0)
+        dns["rules"] = dnsRules
+        config["dns"] = dns
+        return config
     }
 }
 

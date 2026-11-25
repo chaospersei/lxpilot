@@ -164,6 +164,15 @@ struct ClashAPI {
         try await send("/configs", method: "PATCH", body: body)
     }
 
+    /// Blocking variant for the quit path, where nothing can be awaited.
+    func setModeSync(_ mode: String) {
+        guard let body = try? JSONSerialization.data(withJSONObject: ["mode": mode]),
+              let request = try? makeRequest("/configs", method: "PATCH", body: body, timeout: 2) else { return }
+        let done = DispatchSemaphore(value: 0)
+        ClashAPI.session.dataTask(with: request) { _, _, _ in done.signal() }.resume()
+        _ = done.wait(timeout: .now() + 3)
+    }
+
     func select(group: String, proxy: String) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["name": proxy])
         try await send("/proxies/\(ClashAPI.encode(group))", method: "PUT", body: body)

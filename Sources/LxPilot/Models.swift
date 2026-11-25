@@ -74,10 +74,25 @@ enum AppRouteMode: String, Codable, CaseIterable, Identifiable {
 enum WiFiAction: String, Codable, CaseIterable, Identifiable {
     case connect, disconnect
     var id: String { rawValue }
+    var title: String { title(in: .power) }
+    func title(in mode: WiFiMode) -> String {
+        switch (self, mode) {
+        case (.connect, .power): return "Включать VPN"
+        case (.disconnect, .power): return "Отключать VPN"
+        case (.connect, .routing): return "Через VPN"
+        case (.disconnect, .routing): return "Напрямую"
+        }
+    }
+}
+
+/// How the Wi-Fi rules act: by starting and stopping the core, or by rerouting a core that stays up.
+enum WiFiMode: String, Codable, CaseIterable, Identifiable {
+    case power, routing
+    var id: String { rawValue }
     var title: String {
         switch self {
-        case .connect: return "Включать VPN"
-        case .disconnect: return "Отключать VPN"
+        case .power: return "Отключать VPN"
+        case .routing: return "Переключать маршрутизацию"
         }
     }
 }
@@ -245,6 +260,10 @@ struct AppSettings: Codable, Equatable {
     var wifiRules: [WiFiRule] = []
     /// What joining a Wi-Fi network without a rule of its own does; nil leaves the VPN alone.
     var wifiDefault: WiFiAction?
+    /// `.routing` puts the "everything direct" clash mode into the config; switched hot, not in `runtimeKey`.
+    var wifiMode: WiFiMode = .power
+    /// Routing mode: the clash mode in force before the direct one took over, to return to.
+    var wifiSavedMode: String?
     var routing = RoutingConfig()
     /// Talk to the system LaunchDaemon of sing-box-lx (root, mTLS) instead of running a core process.
     var useSystemService = false
@@ -287,6 +306,8 @@ struct AppSettings: Codable, Equatable {
         appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
         wifiRules = try c.decodeIfPresent([WiFiRule].self, forKey: .wifiRules) ?? d.wifiRules
         wifiDefault = try c.decodeIfPresent(WiFiAction.self, forKey: .wifiDefault)
+        wifiMode = try c.decodeIfPresent(WiFiMode.self, forKey: .wifiMode) ?? d.wifiMode
+        wifiSavedMode = try c.decodeIfPresent(String.self, forKey: .wifiSavedMode)
         routing = try c.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? d.routing
         useSystemService = try c.decodeIfPresent(Bool.self, forKey: .useSystemService) ?? d.useSystemService
         serviceAddress = try c.decodeIfPresent(String.self, forKey: .serviceAddress) ?? d.serviceAddress
