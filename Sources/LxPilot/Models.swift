@@ -70,6 +70,26 @@ enum AppRouteMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// What joining a Wi-Fi network does to the VPN.
+enum WiFiAction: String, Codable, CaseIterable, Identifiable {
+    case connect, disconnect
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .connect: return "Включать VPN"
+        case .disconnect: return "Отключать VPN"
+        }
+    }
+}
+
+/// A rule for one Wi-Fi network, matched by its exact name.
+struct WiFiRule: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var ssid: String
+    var action: WiFiAction = .disconnect
+    var enabled = true
+}
+
 /// An application whose connections are routed by a rule placed ahead of the profile's own rules.
 struct AppRule: Codable, Identifiable, Equatable {
     var id = UUID()
@@ -221,6 +241,8 @@ struct AppSettings: Codable, Equatable {
     var popoverConnections = true
     var popoverSort: PopoverSort = .speed
     var appRules: [AppRule] = []
+    /// Connect or disconnect on joining a named Wi-Fi network; not a core setting, so not in `runtimeKey`.
+    var wifiRules: [WiFiRule] = []
     var routing = RoutingConfig()
     /// Talk to the system LaunchDaemon of sing-box-lx (root, mTLS) instead of running a core process.
     var useSystemService = false
@@ -261,6 +283,7 @@ struct AppSettings: Codable, Equatable {
         popoverConnections = try c.decodeIfPresent(Bool.self, forKey: .popoverConnections) ?? d.popoverConnections
         popoverSort = try c.decodeIfPresent(PopoverSort.self, forKey: .popoverSort) ?? d.popoverSort
         appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
+        wifiRules = try c.decodeIfPresent([WiFiRule].self, forKey: .wifiRules) ?? d.wifiRules
         routing = try c.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? d.routing
         useSystemService = try c.decodeIfPresent(Bool.self, forKey: .useSystemService) ?? d.useSystemService
         serviceAddress = try c.decodeIfPresent(String.self, forKey: .serviceAddress) ?? d.serviceAddress
@@ -306,7 +329,7 @@ enum CoreState: Equatable {
 }
 
 enum Page: String, CaseIterable, Identifiable {
-    case dashboard, proxies, routes, apps, profiles, connections, logs, tools
+    case dashboard, proxies, routes, apps, networks, profiles, connections, logs, tools
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -314,6 +337,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .proxies: return "Прокси"
         case .routes: return "Маршруты"
         case .apps: return "Приложения"
+        case .networks: return "Сети"
         case .profiles: return "Профили"
         case .connections: return "Соединения"
         case .logs: return "Логи"
@@ -326,6 +350,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .proxies: return "point.3.connected.trianglepath.dotted"
         case .routes: return "arrow.triangle.swap"
         case .apps: return "app.badge.checkmark"
+        case .networks: return "wifi"
         case .profiles: return "folder"
         case .connections: return "arrow.left.arrow.right"
         case .logs: return "doc.text"

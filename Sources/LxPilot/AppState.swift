@@ -48,6 +48,12 @@ final class AppState: ObservableObject {
     @Published var ipInfo: IPInfo?
     @Published var ipLoading = false
     @Published var proxyProbe: ProxyChecker.Result?
+
+    // Wi-Fi rules
+    @Published var currentSSID: String?
+    /// The last thing a Wi-Fi rule did, with the time: shown on the "Сети" page.
+    @Published var wifiNote: String?
+    @Published var knownNetworks: [String] = []
     @Published var probing = false
     /// The config the running core was given (profile + overlay), for node details the Clash API lacks.
     @Published private(set) var activeConfig: JSON?
@@ -69,6 +75,11 @@ final class AppState: ObservableObject {
     private var nextResourceSample = Date.distantPast
     private var nextProbe = Date.distantFuture
     private var bootstrapped = false
+    private let wifi = WiFiMonitor()
+    private var wifiTask: Task<Void, Never>?
+    /// The network whose rule was last evaluated: a rule acts on joining, not continuously, so a
+    /// manual start or stop holds until the network changes.
+    private var appliedSSID: String?
 
     private static let proxyDirtyKey = "systemProxyDirty"
 
@@ -161,13 +172,31 @@ final class AppState: ObservableObject {
         // The window self-test must leave the core and the system proxy alone.
         if ProcessInfo.processInfo.environment["LXPILOT_SELFTEST_WINDOW"] == "1" { return }
         #endif
-        if await adoptRunningCore() { return }
+        wifi.start { [weak self] in self?.networkMayHaveChanged() }
+        // With rules present the network decides before auto-connect does: a "disconnect" network
+        // must not see the VPN come up first. Without rules the lookup runs on the side.
+        var rule: WiFiRule?
+        if settings.wifiRules.contains(where: { $0.enabled }) {
+            let ssid = await WiFiMonitor.currentSSID()
+            currentSSID = ssid
+            appliedSSID = ssid
+            rule = wifiRule(for: ssid)
+        } else {
+            networkMayHaveChanged()
+        }
+        if await adoptRunningCore() {
+            if let rule, rule.action == .disconnect { await applyWiFiRule(rule) }
+            return
+        }
         // A previous run that crashed may have left the system proxy pointing at a dead port.
         if UserDefaults.standard.bool(forKey: AppState.proxyDirtyKey) {
             _ = await Task.detached { SystemProxy.disable() }.value
             UserDefaults.standard.set(false, forKey: AppState.proxyDirtyKey)
         }
-        if settings.autoConnect, coreInstalled, currentProfile != nil {
+        guard coreInstalled, currentProfile != nil else { return }
+        if let rule {
+            await applyWiFiRule(rule)
+        } else if settings.autoConnect {
             await start()
         }
     }
@@ -375,6 +404,87 @@ final class AppState: ObservableObject {
         panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }
         for url in panel.urls { await addAppRule(url: url) }
+    }
+
+    // MARK: - Wi-Fi rules
+
+    func wifiRule(for ssid: String?) -> WiFiRule? {
+        guard let ssid else { return nil }
+        return settings.wifiRules.first { $0.enabled && $0.ssid == ssid }
+    }
+
+    /// Called on every hint from `WiFiMonitor`. Hints come in bursts while the Mac associates, and
+    /// the name is not known until it settles, so the lookup waits a moment and the last hint wins.
+    func networkMayHaveChanged() {
+        wifiTask?.cancel()
+        wifiTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.refreshWiFi()
+        }
+    }
+
+    /// Looks the network up and, if it is a different one than last time, applies its rule.
+    func refreshWiFi() async {
+        let ssid = await WiFiMonitor.currentSSID()
+        if ssid != currentSSID { currentSSID = ssid }
+        guard ssid != appliedSSID else { return }
+        appliedSSID = ssid
+        if let rule = wifiRule(for: ssid) { await applyWiFiRule(rule) }
+    }
+
+    private func applyWiFiRule(_ rule: WiFiRule) async {
+        // A start or stop in flight finishes first; the rule then acts on the settled state.
+        for _ in 0..<120 where isBusy { try? await Task.sleep(nanoseconds: 500_000_000) }
+        let time = Date().formatted(date: .omitted, time: .shortened)
+        switch rule.action {
+        case .disconnect:
+            guard isRunning else { return }
+            await stop()
+            wifiNote = "\(time) — сеть «\(rule.ssid)»: VPN отключён по правилу."
+        case .connect:
+            switch coreState {
+            case .stopped, .failed: break
+            default: return
+            }
+            guard coreInstalled, currentProfile != nil else { return }
+            await start()
+            wifiNote = isRunning ? "\(time) — сеть «\(rule.ssid)»: VPN включён по правилу."
+                                 : "\(time) — сеть «\(rule.ssid)»: включить VPN по правилу не удалось."
+        }
+    }
+
+    /// Stores the rules. A rule that now applies to the network the Mac is on acts at once:
+    /// adding "отключать" for the current network and seeing nothing happen would read as broken.
+    func setWiFiRules(_ rules: [WiFiRule]) async {
+        guard settings.wifiRules != rules else { return }
+        let before = wifiRule(for: currentSSID)
+        settings.wifiRules = rules
+        let after = wifiRule(for: currentSSID)
+        if let after, after.action != before?.action { await applyWiFiRule(after) }
+    }
+
+    func addWiFiRule(ssid: String, action: WiFiAction = .disconnect) async {
+        let name = ssid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        guard !settings.wifiRules.contains(where: { $0.ssid == name }) else {
+            alert = "Сеть «\(name)» уже есть в списке."
+            return
+        }
+        await setWiFiRules(settings.wifiRules + [WiFiRule(ssid: name, action: action)])
+    }
+
+    func updateWiFiRule(_ rule: WiFiRule) async {
+        await setWiFiRules(settings.wifiRules.map { $0.id == rule.id ? rule : $0 })
+    }
+
+    func removeWiFiRule(_ rule: WiFiRule) async {
+        await setWiFiRules(settings.wifiRules.filter { $0.id != rule.id })
+    }
+
+    func loadKnownNetworks() async {
+        let networks = await WiFiMonitor.knownNetworks()
+        if networks != knownNetworks { knownNetworks = networks }
     }
 
     // MARK: - Routing editor

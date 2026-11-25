@@ -100,8 +100,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem?.simulateHover(false)
             try? await Task.sleep(nanoseconds: 700_000_000)
             NSLog("selftest: popover after hover-out %d (expected 0; %@)", statusItem?.popoverShown ?? false, statusItem?.hoverState ?? "")
-            // A failed start must make the status item blink red until the state changes.
             let state = AppState.shared
+            // The Wi-Fi page looks the network up on appearing. With rules present that lookup could
+            // start or stop the core, which a self-test must not do.
+            if state.settings.wifiRules.isEmpty {
+                MainWindow.show()
+                state.page = .networks
+                try? await Task.sleep(nanoseconds: 4_500_000_000)
+                NSLog("selftest: networks page — ssid found=%d known=%d", state.currentSSID != nil, state.knownNetworks.count)
+                state.page = .dashboard
+            } else {
+                NSLog("selftest: networks page skipped, Wi-Fi rules exist")
+            }
+            // A failed start must make the status item blink red until the state changes.
             if state.coreState == .stopped {
                 state.coreState = .failed("selftest")
                 try? await Task.sleep(nanoseconds: 100_000_000)

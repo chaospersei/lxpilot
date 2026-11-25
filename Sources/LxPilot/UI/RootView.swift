@@ -153,6 +153,7 @@ struct RootView: View {
         case .proxies: ProxiesView()
         case .routes: RoutesView()
         case .apps: AppsView()
+        case .networks: NetworksView()
         case .profiles: ProfilesView()
         case .connections: ConnectionsView()
         case .logs: LogsView()
@@ -165,7 +166,7 @@ struct NavigationRail: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {   // nine pages: 4 pt gaps and 50 pt buttons keep the rail inside the 600 pt minimum window
             Image(nsImage: AppIcon.glyph(linked: true, size: 30))
                 .renderingMode(.template)
                 .foregroundStyle(state.accent)
@@ -225,7 +226,7 @@ struct RailButton: View {
                     .lineLimit(1)
             }
             .foregroundStyle(selected ? state.accent : Color.secondary)
-            .frame(width: 84, height: 54)
+            .frame(width: 84, height: 50)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
