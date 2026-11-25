@@ -243,6 +243,8 @@ struct AppSettings: Codable, Equatable {
     var appRules: [AppRule] = []
     /// Connect or disconnect on joining a named Wi-Fi network; not a core setting, so not in `runtimeKey`.
     var wifiRules: [WiFiRule] = []
+    /// What joining a Wi-Fi network without a rule of its own does; nil leaves the VPN alone.
+    var wifiDefault: WiFiAction?
     var routing = RoutingConfig()
     /// Talk to the system LaunchDaemon of sing-box-lx (root, mTLS) instead of running a core process.
     var useSystemService = false
@@ -284,6 +286,7 @@ struct AppSettings: Codable, Equatable {
         popoverSort = try c.decodeIfPresent(PopoverSort.self, forKey: .popoverSort) ?? d.popoverSort
         appRules = try c.decodeIfPresent([AppRule].self, forKey: .appRules) ?? d.appRules
         wifiRules = try c.decodeIfPresent([WiFiRule].self, forKey: .wifiRules) ?? d.wifiRules
+        wifiDefault = try c.decodeIfPresent(WiFiAction.self, forKey: .wifiDefault)
         routing = try c.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? d.routing
         useSystemService = try c.decodeIfPresent(Bool.self, forKey: .useSystemService) ?? d.useSystemService
         serviceAddress = try c.decodeIfPresent(String.self, forKey: .serviceAddress) ?? d.serviceAddress

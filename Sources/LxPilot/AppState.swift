@@ -176,7 +176,7 @@ final class AppState: ObservableObject {
         // With rules present the network decides before auto-connect does: a "disconnect" network
         // must not see the VPN come up first. Without rules the lookup runs on the side.
         var rule: WiFiRule?
-        if settings.wifiRules.contains(where: { $0.enabled }) {
+        if wifiRulesActive {
             let ssid = await WiFiMonitor.currentSSID()
             currentSSID = ssid
             appliedSSID = ssid
@@ -408,9 +408,20 @@ final class AppState: ObservableObject {
 
     // MARK: - Wi-Fi rules
 
+    /// The rule in force for a network: its own, or the default action as a rule. A switched-off
+    /// rule counts as absent, so the default covers that network too. No Wi-Fi, no rule.
     func wifiRule(for ssid: String?) -> WiFiRule? {
         guard let ssid else { return nil }
-        return settings.wifiRules.first { $0.enabled && $0.ssid == ssid }
+        if let own = settings.wifiRules.first(where: { $0.enabled && $0.ssid == ssid }) { return own }
+        return settings.wifiDefault.map { WiFiRule(ssid: ssid, action: $0) }
+    }
+
+    func hasOwnWiFiRule(_ ssid: String?) -> Bool {
+        settings.wifiRules.contains { $0.enabled && $0.ssid == ssid }
+    }
+
+    private var wifiRulesActive: Bool {
+        settings.wifiDefault != nil || settings.wifiRules.contains { $0.enabled }
     }
 
     /// Called on every hint from `WiFiMonitor`. Hints come in bursts while the Mac associates, and
@@ -458,8 +469,17 @@ final class AppState: ObservableObject {
     /// adding "отключать" for the current network and seeing nothing happen would read as broken.
     func setWiFiRules(_ rules: [WiFiRule]) async {
         guard settings.wifiRules != rules else { return }
+        await changeWiFiSettings { $0.wifiRules = rules }
+    }
+
+    func setWiFiDefault(_ action: WiFiAction?) async {
+        guard settings.wifiDefault != action else { return }
+        await changeWiFiSettings { $0.wifiDefault = action }
+    }
+
+    private func changeWiFiSettings(_ change: (inout AppSettings) -> Void) async {
         let before = wifiRule(for: currentSSID)
-        settings.wifiRules = rules
+        change(&settings)
         let after = wifiRule(for: currentSSID)
         if let after, after.action != before?.action { await applyWiFiRule(after) }
     }

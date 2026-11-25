@@ -27,10 +27,11 @@ struct NetworksView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     CurrentNetworkCard()
+                    DefaultNetworkCard()
                     if manualEntry { manualRow }
                     if state.settings.wifiRules.isEmpty {
                         EmptyHint(icon: "wifi",
-                                  text: "Добавьте сеть: текущую, одну из сохранённых на этом Mac или по имени. Затем выберите, что делать при входе в неё — включать VPN или отключать.")
+                                  text: "Добавьте сеть: текущую, одну из сохранённых на этом Mac или по имени. Затем выберите, что делать при входе в неё — включать VPN или отключать. Для всех прочих сетей действует выбор в плитке «Остальные сети».")
                             .frame(maxWidth: .infinity)
                             .padding(.top, 30)
                     } else {
@@ -156,10 +157,46 @@ struct CurrentNetworkCard: View {
     private var ruleText: String {
         guard state.currentSSID != nil else { return "Правила не применяются." }
         guard let rule = state.wifiRule(for: state.currentSSID) else { return "Для этой сети правила нет: VPN не трогаем." }
+        let source = state.hasOwnWiFiRule(state.currentSSID) ? "Правило сети" : "Как для остальных сетей"
         switch rule.action {
-        case .connect: return "Правило: включать VPN при входе в сеть."
-        case .disconnect: return "Правило: отключать VPN при входе в сеть."
+        case .connect: return "\(source): включать VPN при входе в сеть."
+        case .disconnect: return "\(source): отключать VPN при входе в сеть."
         }
+    }
+}
+
+/// The default: what joining a Wi-Fi network without a rule of its own does.
+struct DefaultNetworkCard: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "wifi.circle")
+                .font(.system(size: 20))
+                .foregroundStyle(state.settings.wifiDefault == nil ? Color.secondary : state.accent)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Остальные сети")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Что делать при входе в сеть Wi-Fi, для которой ниже нет своего правила.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Picker("", selection: Binding(
+                get: { state.settings.wifiDefault },
+                set: { value in Task { await state.setWiFiDefault(value) } })) {
+                Text("Не трогать").tag(WiFiAction?.none)
+                ForEach(WiFiAction.allCases) { action in
+                    Text(action.title).tag(WiFiAction?.some(action))
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .card(selected: state.settings.wifiDefault != nil, padding: 14)
     }
 }
 

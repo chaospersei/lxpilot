@@ -103,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let state = AppState.shared
             // The Wi-Fi page looks the network up on appearing. With rules present that lookup could
             // start or stop the core, which a self-test must not do.
-            if state.settings.wifiRules.isEmpty {
+            if state.settings.wifiRules.isEmpty, state.settings.wifiDefault == nil {
                 MainWindow.show()
                 state.page = .networks
                 try? await Task.sleep(nanoseconds: 4_500_000_000)
