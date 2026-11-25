@@ -2,6 +2,20 @@
 
 Нативный клиент macOS (SwiftUI) для ядра [sing-box-lx](https://github.com/Leadaxe/sing-box-lx): боковая навигация, панель из карточек, группы прокси плиткой, значок со скоростью в строке меню.
 
+<p align="center">
+  <img src="docs/screenshots/dashboard.jpg" alt="Главное окно LxPilot: панель со скоростью, текущим прокси и режимом маршрутизации" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/popover.jpg" alt="Поповер значка в строке меню: график за пять минут, текущий узел и самые активные соединения" width="420">
+</p>
+
+<p align="center">
+  <a href="docs/screenshots/routes.jpg"><img src="docs/screenshots/routes.jpg" alt="Раздел «Маршруты»" width="48%"></a>
+  &nbsp;
+  <a href="docs/screenshots/networks.jpg"><img src="docs/screenshots/networks.jpg" alt="Раздел «Сети»" width="48%"></a>
+</p>
+
 > Статус: v0.1, ранняя версия. Интерфейс только на русском, тестов нет. Что проверено на живом Mac, а что нет — в разделе «Ограничения».
 
 ## Установка
