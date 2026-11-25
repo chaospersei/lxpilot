@@ -158,12 +158,12 @@ struct CurrentNetworkCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: state.currentSSID == nil ? "wifi.slash" : "wifi")
+            Image(systemName: state.wifiUnknown ? "wifi.exclamationmark" : (state.currentSSID == nil ? "wifi.slash" : "wifi"))
                 .font(.system(size: 20))
-                .foregroundStyle(state.currentSSID == nil ? Color.secondary : state.accent)
+                .foregroundStyle(state.currentSSID == nil || state.wifiUnknown ? Color.secondary : state.accent)
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 4) {
-                Text(state.currentSSID ?? "Wi-Fi не подключён")
+                Text(state.wifiUnknown ? "Сеть определяется…" : (state.currentSSID ?? "Wi-Fi не подключён"))
                     .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
                 Text(ruleText)
@@ -194,8 +194,12 @@ struct CurrentNetworkCard: View {
     }
 
     private var ruleText: String {
-        guard state.currentSSID != nil else { return "Правила не применяются." }
         let routing = state.settings.wifiMode == .routing
+        if state.wifiUnknown {
+            return routing ? "Wi-Fi подключён, но имя сети получить не удалось. Попытки продолжаются; до тех пор маршруты обычные."
+                           : "Wi-Fi подключён, но имя сети получить не удалось. Попытки продолжаются; до тех пор правила не применяются."
+        }
+        guard state.currentSSID != nil else { return "Правила не применяются." }
         guard let rule = state.wifiRule(for: state.currentSSID) else {
             return routing ? "Для этой сети правила нет: маршруты обычные, VPN не запускаем." : "Для этой сети правила нет: VPN не трогаем."
         }

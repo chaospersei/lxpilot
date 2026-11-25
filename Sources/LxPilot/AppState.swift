@@ -54,6 +54,8 @@ final class AppState: ObservableObject {
     @Published var currentSSID: String?
     /// The last thing a Wi-Fi rule did, with the time: shown on the "Сети" page.
     @Published var wifiNote: String?
+    /// The Mac is on Wi-Fi but the network's name could not be had; lookups go on.
+    @Published var wifiUnknown = false
     @Published var knownNetworks: [String] = []
     @Published var probing = false
     /// The config the running core was given (profile + overlay), for node details the Clash API lacks.
@@ -81,8 +83,10 @@ final class AppState: ObservableObject {
     /// The network whose rule was last evaluated: a rule acts on joining, not continuously, so a
     /// manual start or stop holds until the network changes.
     private var appliedSSID: String?
-    /// Routing mode: a hint came and the network has not been named since, so direct routes are off.
+    /// A hint came and the network has not been named since; in routing mode direct routes are off.
     private var wifiPending = false
+    private var wifiRetryTask: Task<Void, Never>?
+    private var wifiRetries = 0
     /// Bumped by every hint; a lookup that started before the latest one is stale.
     private var wifiGeneration = 0
 
@@ -211,10 +215,16 @@ final class AppState: ObservableObject {
         var rule: WiFiRule?
         let routing = settings.wifiMode == .routing
         if wifiRulesActive {
-            let ssid = await WiFiMonitor.currentSSID()
+            let found = await WiFiMonitor.lookup()
+            let ssid = found.name
             currentSSID = ssid
             appliedSSID = ssid
             rule = wifiRule(for: ssid)
+            if found == .unknown {
+                wifiPending = true
+                wifiUnknown = true
+                scheduleWiFiRetry()
+            }
         } else {
             networkMayHaveChanged()
         }
@@ -474,8 +484,10 @@ final class AppState: ObservableObject {
     /// network is named: for those seconds traffic takes the VPN routes instead of leaving in the open.
     private func wifiHint() {
         wifiGeneration += 1
+        wifiPending = true
+        wifiRetryTask?.cancel()
+        wifiRetries = 0
         if settings.wifiMode == .routing {
-            wifiPending = true
             if isRunning, mode == ConfigBuilder.wifiDirectMode || mode.isEmpty {
                 Task { await self.setWiFiDirect(false) }
             }
@@ -500,9 +512,21 @@ final class AppState: ObservableObject {
     /// Routing mode also re-applies after any hint, since the hint took the direct routes away.
     func refreshWiFi() async {
         let generation = wifiGeneration
-        let ssid = await WiFiMonitor.currentSSID()
+        let found = await WiFiMonitor.lookup()
         // A hint during the lookup makes the name stale; that hint has a lookup of its own coming.
         guard generation == wifiGeneration else { return }
+        if found == .unknown {
+            // On Wi-Fi, name withheld. With no hint since the last good lookup the old name stands;
+            // after a hint it does not, and "no Wi-Fi" would be just as wrong — so ask again later.
+            guard wifiPending else { return }
+            if !wifiUnknown { wifiUnknown = true }
+            scheduleWiFiRetry()
+            return
+        }
+        wifiRetryTask?.cancel()
+        wifiRetries = 0
+        if wifiUnknown { wifiUnknown = false }
+        let ssid = found.name
         if ssid != currentSSID { currentSSID = ssid }
         let changed = ssid != appliedSSID
         guard changed || wifiPending else { return }
@@ -512,6 +536,18 @@ final class AppState: ObservableObject {
             await applyWiFiRouting(mayStart: changed)
         } else if changed, let rule = wifiRule(for: ssid) {
             await applyWiFiRule(rule)
+        }
+    }
+
+    /// 5, 10, 20, 40 and then every 60 seconds, until a lookup gives a name or a hint starts over.
+    private func scheduleWiFiRetry() {
+        wifiRetryTask?.cancel()
+        let delay = min(60, 5 << min(wifiRetries, 4))
+        wifiRetries += 1
+        wifiRetryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            Task { await self?.refreshWiFi() }
         }
     }
 
@@ -615,7 +651,6 @@ final class AppState: ObservableObject {
         guard settings.wifiMode != newMode else { return }
         if newMode == .power { await setWiFiDirect(false) }   // the mode's rule is about to leave the config
         settings.wifiMode = newMode
-        wifiPending = false
         await reload()
         if newMode == .routing {
             await applyWiFiRouting(mayStart: true)
