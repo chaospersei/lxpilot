@@ -112,6 +112,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 NSLog("selftest: networks page skipped, Wi-Fi rules exist")
             }
+            // The main window's glass layers do not come out of `cacheDisplay`, so the banner is
+            // drawn in a plain window of its own; what is checked in place is that it is up.
+            state.showError("Проверка баннера: сообщение об ошибке занимает место сверху окна и не мешает работать со страницей.")
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            NSLog("selftest: notice banner — shown=%d", state.notice != nil)
+            if let shot = ProcessInfo.processInfo.environment["LXPILOT_SELFTEST_SHOT"], let notice = state.notice {
+                let samples = VStack(spacing: 12) {
+                    NoticeBanner(notice: notice)
+                    NoticeBanner(notice: Notice(text: "Сопряжение с системной службой выполнено.", kind: .info))
+                }
+                .padding(20)
+                .frame(width: 720)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environmentObject(state)
+                let hosting = NSHostingController(rootView: samples)
+                let sampleWindow = NSWindow(contentViewController: hosting)
+                sampleWindow.isReleasedWhenClosed = false
+                sampleWindow.orderFront(nil)
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                if let view = sampleWindow.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: shot + ".banner.png"))
+                }
+                sampleWindow.close()
+            }
+            state.dismissNotice()
+            state.report(URLError(.cancelled))
+            state.report(CancellationError())
+            NSLog("selftest: cancelled errors reported — notice=%d (expected 0)", state.notice != nil)
             AboutWindow.show()
             try? await Task.sleep(nanoseconds: 600_000_000)
             if let about = AboutWindow.window, let view = about.contentView {

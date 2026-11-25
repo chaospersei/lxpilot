@@ -17,7 +17,8 @@ final class AppState: ObservableObject {
     @Published var page: Page = .dashboard {
         didSet { if page == .logs { logStore.flush() } }
     }
-    @Published var alert: String?
+    /// The one message shown in the banner at the top of the window; nothing in the app is modal.
+    @Published var notice: Notice?
 
     // Core
     @Published var coreState: CoreState = .stopped
@@ -165,6 +166,34 @@ final class AppState: ObservableObject {
             .compactMap { $0["tag"] as? String })
     }
 
+    // MARK: - Messages
+
+    func showError(_ text: String) {
+        notice = Notice(text: text, kind: .error)
+    }
+
+    /// Good news needs no click to go away; a longer text stays longer.
+    func showInfo(_ text: String) {
+        let shown = Notice(text: text, kind: .info)
+        notice = shown
+        let seconds = 6 + UInt64(text.count / 20)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+            if self?.notice?.id == shown.id { self?.notice = nil }
+        }
+    }
+
+    /// A cancelled request is somebody changing their mind, not a failure to report.
+    func report(_ error: Error) {
+        if error is CancellationError { return }
+        if (error as? URLError)?.code == .cancelled { return }
+        showError(error.localizedDescription)
+    }
+
+    func dismissNotice() {
+        notice = nil
+    }
+
     // MARK: - Launch / quit
 
     func bootstrap() async {
@@ -260,12 +289,12 @@ final class AppState: ObservableObject {
         default: return
         }
         guard core.binaryExists else {
-            alert = "Ядро sing-box-lx не установлено. Скачайте его в разделе «Инструменты»."
+            showError("Ядро sing-box-lx не установлено. Скачайте его в разделе «Инструменты».")
             page = .tools
             return
         }
         guard let profile = currentProfile else {
-            alert = "Сначала добавьте и выберите профиль."
+            showError("Сначала добавьте и выберите профиль.")
             page = .profiles
             return
         }
@@ -282,7 +311,7 @@ final class AppState: ObservableObject {
             beginMonitoring()   // the first proxy refresh triggers the IP lookup and the latency probe
         } catch {
             coreState = .failed(error.localizedDescription)
-            alert = error.localizedDescription
+            report(error)
         }
     }
 
@@ -325,7 +354,7 @@ final class AppState: ObservableObject {
                 await refreshMode()
                 await syncWiFiRouting()
             } catch {
-                alert = error.localizedDescription
+                report(error)
             }
         } else {
             await restart()
@@ -340,7 +369,7 @@ final class AppState: ObservableObject {
         endMonitoring()
         runningSettings = nil
         coreState = .failed(message)
-        alert = message
+        showError(message)
         Task {
             await applySystemProxy(false)
             await core.stop()
@@ -375,7 +404,7 @@ final class AppState: ObservableObject {
     func addAppRule(url: URL, mode: AppRouteMode = .proxy) async {
         let path = url.standardizedFileURL.path
         guard !settings.appRules.contains(where: { $0.path == path }) else {
-            alert = "«\(url.deletingPathExtension().lastPathComponent)» уже есть в списке."
+            showError("«\(url.deletingPathExtension().lastPathComponent)» уже есть в списке.")
             return
         }
         let bundle = Bundle(url: url)
@@ -460,8 +489,10 @@ final class AppState: ObservableObject {
         wifiTask?.cancel()
         wifiTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled, let self else { return }
-            await self.refreshWiFi()
+            guard !Task.isCancelled else { return }
+            // A task of its own: the next hint cancels this one, and that must stop the wait only,
+            // not a request to the core or a start that the lookup has already led to.
+            Task { await self?.refreshWiFi() }
         }
     }
 
@@ -538,7 +569,7 @@ final class AppState: ObservableObject {
                 }
             }
         } catch {
-            alert = error.localizedDescription
+            report(error)
         }
     }
 
@@ -621,7 +652,7 @@ final class AppState: ObservableObject {
         let name = ssid.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         guard !settings.wifiRules.contains(where: { $0.ssid == name }) else {
-            alert = "Сеть «\(name)» уже есть в списке."
+            showError("Сеть «\(name)» уже есть в списке.")
             return
         }
         await setWiFiRules(settings.wifiRules + [WiFiRule(ssid: name, action: action)])
@@ -711,7 +742,7 @@ final class AppState: ObservableObject {
         if skipped > 0 {
             text += " \(skipped) " + plural(skipped, "правило", "правила", "правил") + " в редакторе не выражается (несколько условий, логические правила, действия lx) — " + (skipped == 1 ? "оно остаётся" : "они остаются") + " в профиле и действуют после правил редактора."
         }
-        alert = text
+        showInfo(text)
     }
 
     // MARK: - Dashboard switches
@@ -747,7 +778,7 @@ final class AppState: ObservableObject {
             enabled ? SystemProxy.enable(port: port, bypass: bypass) : SystemProxy.disable()
         }.value
         UserDefaults.standard.set(enabled, forKey: AppState.proxyDirtyKey)
-        if let failure { alert = failure }
+        if let failure { showError(failure) }
     }
 
     func setMode(_ newMode: String) async {
@@ -756,7 +787,7 @@ final class AppState: ObservableObject {
             try await clash.setMode(newMode)
             mode = newMode
         } catch {
-            alert = error.localizedDescription
+            report(error)
         }
     }
 
@@ -1011,7 +1042,7 @@ final class AppState: ObservableObject {
                 groups[index].now = proxy
             }
         } catch {
-            alert = error.localizedDescription
+            report(error)
         }
     }
 
@@ -1134,7 +1165,7 @@ final class AppState: ObservableObject {
             persistProfiles()
             if settings.selectedProfileID == profile.id { await reload() }
         } catch {
-            alert = "Не удалось обновить «\(profile.name)»: \(error.localizedDescription)"
+            showError("Не удалось обновить «\(profile.name)»: \(error.localizedDescription)")
         }
     }
 
@@ -1146,7 +1177,7 @@ final class AppState: ObservableObject {
 
     func deleteProfile(_ profile: Profile) {
         guard !(isRunning && settings.selectedProfileID == profile.id) else {
-            alert = "Этот профиль сейчас используется. Отключитесь или выберите другой профиль."
+            showError("Этот профиль сейчас используется. Отключитесь или выберите другой профиль.")
             return
         }
         try? FileManager.default.removeItem(at: profile.fileURL)
@@ -1170,52 +1201,52 @@ final class AppState: ObservableObject {
 
     /// Installs the LaunchDaemon from our core binary (one password prompt) and pairs with it.
     func installService() async {
-        guard !isRunning else { alert = "Отключитесь перед установкой службы."; return }
-        guard coreInstalled else { alert = "Сначала скачайте ядро в разделе «Инструменты»."; return }
+        guard !isRunning else { showError("Отключитесь перед установкой службы."); return }
+        guard coreInstalled else { showError("Сначала скачайте ядро в разделе «Инструменты»."); return }
         serviceBusy = true
         defer { serviceBusy = false }
         do {
             let invite = try await SystemService.install()
             try await completePairing(invite)
-            alert = "Системная служба установлена и сопряжена. TUN теперь включается без запроса пароля."
+            showInfo("Системная служба установлена и сопряжена. TUN теперь включается без запроса пароля.")
         } catch {
-            alert = error.localizedDescription
+            report(error)
         }
         await refreshServiceStatus()
     }
 
     /// A new invite from an already installed service (ours or singbox-launcher's) and a fresh certificate.
     func pairService() async {
-        guard !isRunning else { alert = "Отключитесь перед сопряжением."; return }
+        guard !isRunning else { showError("Отключитесь перед сопряжением."); return }
         serviceBusy = true
         defer { serviceBusy = false }
         do {
             let invite = try await SystemService.pair()
             try await completePairing(invite)
-            alert = "Сопряжение с системной службой выполнено."
+            showInfo("Сопряжение с системной службой выполнено.")
         } catch {
-            alert = error.localizedDescription
+            report(error)
         }
         await refreshServiceStatus()
     }
 
     func uninstallService() async {
-        guard !isRunning else { alert = "Отключитесь перед удалением службы."; return }
+        guard !isRunning else { showError("Отключитесь перед удалением службы."); return }
         serviceBusy = true
         defer { serviceBusy = false }
         do {
             try await SystemService.uninstall()
             settings.useSystemService = false
-            alert = "Системная служба удалена. Сопряжение сохранено на случай повторной установки."
+            showInfo("Системная служба удалена. Сопряжение сохранено на случай повторной установки.")
         } catch {
-            alert = error.localizedDescription
+            report(error)
         }
         await refreshServiceStatus()
     }
 
     func setUseSystemService(_ enabled: Bool) async {
         guard settings.useSystemService != enabled else { return }
-        if enabled, !settings.servicePaired { alert = "Сначала выполните сопряжение со службой."; return }
+        if enabled, !settings.servicePaired { showError("Сначала выполните сопряжение со службой."); return }
         settings.useSystemService = enabled
         if isRunning { await restart() }
     }
@@ -1253,7 +1284,7 @@ final class AppState: ObservableObject {
 
     func installCore() async {
         guard coreState == .stopped else {
-            alert = "Отключитесь перед обновлением ядра."
+            showError("Отключитесь перед обновлением ядра.")
             return
         }
         installing = true
@@ -1264,13 +1295,13 @@ final class AppState: ObservableObject {
             await refreshVersion()
         } catch {
             installStatus = ""
-            alert = "Не удалось установить ядро: \(error.localizedDescription)"
+            showError("Не удалось установить ядро: \(error.localizedDescription)")
         }
     }
 
     func chooseCoreBinary() async {
         guard coreState == .stopped else {
-            alert = "Отключитесь перед заменой ядра."
+            showError("Отключитесь перед заменой ядра.")
             return
         }
         let panel = NSOpenPanel()
@@ -1283,9 +1314,9 @@ final class AppState: ObservableObject {
             try CoreInstaller.install(from: url)
             installStatus = ""
             await refreshVersion()
-            if coreVersion.isEmpty { alert = "Файл скопирован, но не запускается как sing-box (команда version не ответила)." }
+            if coreVersion.isEmpty { showError("Файл скопирован, но не запускается как sing-box (команда version не ответила).") }
         } catch {
-            alert = "Не удалось установить выбранный файл: \(error.localizedDescription)"
+            showError("Не удалось установить выбранный файл: \(error.localizedDescription)")
         }
     }
 

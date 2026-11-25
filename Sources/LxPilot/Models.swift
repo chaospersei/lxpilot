@@ -70,6 +70,14 @@ enum AppRouteMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// A message for the banner at the top of the window.
+struct Notice: Equatable, Identifiable {
+    enum Kind { case error, info }
+    let id = UUID()
+    var text: String
+    var kind: Kind
+}
+
 /// What joining a Wi-Fi network does to the VPN.
 enum WiFiAction: String, Codable, CaseIterable, Identifiable {
     case connect, disconnect

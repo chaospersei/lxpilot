@@ -102,6 +102,50 @@ struct WindowMaterial: NSViewRepresentable {
     }
 }
 
+// MARK: - Notices
+
+/// Errors and confirmations float over the top of the page instead of stopping the app with a
+/// modal alert. An error stays until closed; it may have appeared while the window was hidden.
+struct NoticeBanner: View {
+    @EnvironmentObject var state: AppState
+    let notice: Notice
+
+    var body: some View {
+        let failed = notice.kind == .error
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(failed ? Color.red : Color.green)
+                .padding(.top, 1)
+            Text(notice.text)
+                .font(.system(size: 12))
+                .lineLimit(8)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+            Button {
+                state.dismissNotice()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Закрыть")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 640, alignment: .leading)
+        // Material, not glass: the text of an error has to stay readable over any page.
+        .background {
+            let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+            shape.fill(.regularMaterial)
+                .overlay(shape.fill((failed ? Color.red : Color.green).opacity(0.12)))
+                .overlay(shape.strokeBorder((failed ? Color.red : Color.green).opacity(0.35), lineWidth: 1))
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        }
+    }
+}
+
 // MARK: - Root
 
 struct RootView: View {
@@ -126,20 +170,20 @@ struct RootView: View {
                         .padding(22)
                 }
             }
+            .overlay(alignment: .top) {
+                if let notice = state.notice {
+                    NoticeBanner(notice: notice)
+                        .padding(.top, 12)
+                        .padding(.horizontal, 20)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(duration: 0.3), value: state.notice)
         }
         .background(WindowMaterial().ignoresSafeArea())   // the only window background: opaque colour here kills the translucency
         .tint(state.accent)
         .frame(minWidth: 900, minHeight: 600)
         .ignoresSafeArea(.container, edges: .top)
-        .alert("LxPilot", isPresented: alertBinding) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(state.alert ?? "")
-        }
-    }
-
-    private var alertBinding: Binding<Bool> {
-        Binding(get: { state.alert != nil }, set: { shown in if !shown { state.alert = nil } })
     }
 
     private var showsStartButton: Bool {

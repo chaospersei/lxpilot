@@ -15,7 +15,8 @@ struct DashboardView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if case .failed(let message) = state.coreState {
+                // While the same text is in the banner at the top, saying it twice is noise.
+                if case .failed(let message) = state.coreState, state.notice?.text != message {
                     FailureBanner(message: message)
                 }
                 SpeedCard()

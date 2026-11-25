@@ -226,7 +226,7 @@ struct ToolsView: View {
             launchAtLogin = enabled
         } catch {
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            state.alert = "Не удалось изменить автозапуск (работает только из собранного .app): \(error.localizedDescription)"
+            state.showError("Не удалось изменить автозапуск (работает только из собранного .app): \(error.localizedDescription)")
         }
     }
 }
