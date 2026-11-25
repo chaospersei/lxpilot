@@ -1,0 +1,64 @@
+name: Release
+
+# Push a tag like v0.2.0 (or v0.2.0-rc.1 for a pre-release) to build and publish.
+# A manual run builds the same files and keeps them as a workflow artifact, without a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for a trial build, without the leading v"
+        required: true
+        default: "0.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app
+
+      - name: Version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then version="${REF_NAME#v}"; else version="$INPUT_VERSION"; fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "Not a version: $version" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build and package
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          BUILD: ${{ github.run_number }}
+        run: Tools/package-release.sh "$VERSION" "$BUILD"
+
+      - name: Keep the files of a trial build
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          name: LxPilot-${{ steps.version.outputs.value }}
+          path: dist/
+          retention-days: 7
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          flags=(--verify-tag --generate-notes --title "LxPilot $VERSION")
+          case "$VERSION" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" dist/*.dmg dist/*.zip dist/SHA256SUMS "${flags[@]}"

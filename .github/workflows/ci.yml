@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # The package needs the macOS 26 SDK and Swift 6.2+; this image carries the Xcode the app is developed with.
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_27.2.app
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
