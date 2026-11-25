@@ -208,6 +208,9 @@ struct ToolsView: View {
                     NSWorkspace.shared.open(Paths.appSupport)
                 }
             }
+            LabeledContent(AppInfo.version.map { "LxPilot \($0)" } ?? "LxPilot, сборка для разработки") {
+                Button("О программе") { AboutWindow.show() }
+            }
         }
     }
 

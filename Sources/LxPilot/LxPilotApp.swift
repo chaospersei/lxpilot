@@ -112,6 +112,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 NSLog("selftest: networks page skipped, Wi-Fi rules exist")
             }
+            AboutWindow.show()
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if let about = AboutWindow.window, let view = about.contentView {
+                NSLog("selftest: about — visible=%d size=%.0fx%.0f main-capable=%d (expected 1, 360 wide, 0)",
+                      about.isVisible, view.frame.width, view.frame.height, about.canBecomeMain)
+                if let path = ProcessInfo.processInfo.environment["LXPILOT_SELFTEST_SHOT"],
+                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                }
+                about.close()
+            }
             // A failed start must make the status item blink red until the state changes.
             if state.coreState == .stopped {
                 state.coreState = .failed("selftest")

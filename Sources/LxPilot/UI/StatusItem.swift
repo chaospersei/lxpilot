@@ -208,6 +208,7 @@ final class StatusItemController: NSResponder, NSMenuDelegate {
         styles.submenu = submenu
         menu.addItem(styles)
         menu.addItem(ClosureItem("Открыть окно") { MainWindow.show() })
+        menu.addItem(ClosureItem("О программе LxPilot") { AboutWindow.show() })
         menu.addItem(.separator())
         menu.addItem(ClosureItem("Выйти", key: "q") { NSApp.terminate(nil) })
     }
