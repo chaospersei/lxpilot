@@ -4,11 +4,11 @@ import SwiftUI
 /// What the About window says. Fill in the author and the repository before publishing: an empty
 /// value shows as "не указан", and its link is not clickable.
 enum AppInfo {
-    static let author = ""
+    static let author = "persei"
     /// Optional: the author's page; makes the name a link.
     static let authorURL = ""
     /// The project's page, e.g. https://github.com/<owner>/LxPilot
-    static let repositoryURL = ""
+    static let repositoryURL = "https://github.com/chaospersei/lxpilot"
     static let license = "GNU GPL v3"
     static let coreURL = "https://github.com/Leadaxe/sing-box-lx"
 
