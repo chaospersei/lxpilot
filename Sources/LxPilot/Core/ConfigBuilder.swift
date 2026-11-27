@@ -2,6 +2,7 @@ import Foundation
 
 enum ConfigBuilder {
     static let utilityTypes: Set<String> = ["direct", "block", "dns", "selector", "urltest", "chain"]
+    static let endpointTypes: Set<String> = ["wireguard", "tailscale"]
 
     static func parseJSON(_ text: String) -> JSON? {
         guard let data = text.data(using: .utf8) else { return nil }
@@ -50,12 +51,16 @@ enum ConfigBuilder {
         let clash: JSON = ["default_mode": "Rule"]
         let experimental: JSON = ["clash_api": clash]
 
-        let config: JSON = [
+        // WireGuard / AmneziaWG nodes are endpoints, not outbounds; groups address both by tag.
+        let endpoints = nodes.filter { endpointTypes.contains(($0["type"] as? String) ?? "") }
+        let outbounds = nodes.filter { !endpointTypes.contains(($0["type"] as? String) ?? "") }
+        var config: JSON = [
             "dns": dns,
-            "outbounds": [selector, urltest, direct] + nodes,
+            "outbounds": [selector, urltest, direct] + outbounds,
             "route": route,
             "experimental": experimental,
         ]
+        if !endpoints.isEmpty { config["endpoints"] = endpoints }
         return config
     }
 
@@ -440,15 +445,24 @@ enum ProfileImporter {
         let nodeCount: Int
     }
 
-    /// Accepts a sing-box JSON config, or a (possibly base64) list of share links.
-    static func convert(_ text: String, testURL: String) throws -> Converted {
+    /// Accepts a sing-box JSON config, a WireGuard / AmneziaWG `.conf`, an Amnezia `vpn://` link,
+    /// or a (possibly base64) list of share links. `name` becomes the tag of a node that has none.
+    static func convert(_ text: String, testURL: String, name: String? = nil) throws -> Converted {
         if let object = ConfigBuilder.parseJSON(text),
            object["outbounds"] != nil || object["endpoints"] != nil || object["inbounds"] != nil {
             return Converted(config: try ConfigBuilder.serialize(object), nodeCount: ConfigBuilder.nodeCount(object))
         }
-        let nodes = ShareLinks.parseAll(text)
+        var nodes: [JSON] = []
+        if AmneziaLink.isLink(text) {
+            let export = try AmneziaLink.decode(text)
+            nodes = [try WireGuardConf.endpoint(from: export.conf, name: name ?? export.name, fallbackEndpoint: export.endpoint)]
+        } else if WireGuardConf.looksLikeConf(text) {
+            nodes = [try WireGuardConf.endpoint(from: text, name: name)]
+        } else {
+            nodes = ShareLinks.parseAll(text)
+        }
         guard !nodes.isEmpty else {
-            throw AppError("Не удалось распознать профиль: ожидается конфиг sing-box (JSON) или список ссылок vless:// / trojan:// / ss:// / hysteria2://.")
+            throw AppError("Не удалось распознать профиль: ожидается конфиг sing-box (JSON), конфиг AmneziaWG / WireGuard (.conf), ссылка vpn:// из Amnezia или список ссылок vless:// / trojan:// / ss:// / hysteria2://.")
         }
         let config = ConfigBuilder.template(nodes: nodes, testURL: testURL)
         return Converted(config: try ConfigBuilder.serialize(config), nodeCount: nodes.count)

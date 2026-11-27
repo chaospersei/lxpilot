@@ -32,7 +32,7 @@ struct ProfilesView: View {
 
             if state.profiles.isEmpty {
                 EmptyHint(icon: "folder.badge.plus",
-                          text: "Добавьте подписку по ссылке, вставьте ссылки vless:// или импортируйте готовый конфиг sing-box.")
+                          text: "Добавьте подписку по ссылке, вставьте ссылки vless://, импортируйте конфиг sing-box или конфиг AmneziaWG — файлом .conf или QR-кодом.")
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
@@ -159,9 +159,10 @@ struct AddProfileSheet: View {
             TextField("URL подписки: https://…", text: $url)
                 .textFieldStyle(.roundedBorder)
 
-            Text("…или вставьте конфиг sing-box (JSON) либо ссылки vless:// / trojan:// / ss:// / hysteria2://, по одной в строке:")
+            Text("…или вставьте конфиг sing-box (JSON), конфиг AmneziaWG / WireGuard (.conf), ссылку vpn:// из Amnezia либо ссылки vless:// / trojan:// / ss:// / hysteria2://, по одной в строке. QR-код читается с картинки: из файла, перетаскиванием или из буфера обмена (снимок области экрана — ⌃⇧⌘4).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             TextEditor(text: $text)
                 .font(.system(size: 11, design: .monospaced))
@@ -177,17 +178,8 @@ struct AddProfileSheet: View {
             }
 
             HStack {
-                Button("Из буфера обмена") {
-                    if let pasted = NSPasteboard.general.string(forType: .string) {
-                        let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") {
-                            url = trimmed
-                        } else {
-                            text = pasted
-                        }
-                    }
-                }
-                Button("Из файла…") { pickFile() }
+                Button("Из буфера обмена") { paste() }
+                Button("Из файла или QR…") { pickFile() }
                 Spacer()
                 if working { ProgressView().controlSize(.small) }
                 Button("Отмена") { dismiss() }
@@ -200,18 +192,65 @@ struct AddProfileSheet: View {
         }
         .padding(22)
         .frame(width: 560)
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter { $0.isFileURL }
+            guard !files.isEmpty else { return false }
+            load(files: files)
+            return true
+        }
+    }
+
+    private func paste() {
+        let board = NSPasteboard.general
+        let files = (board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        if !files.isEmpty {
+            load(files: files)
+        } else if let pasted = board.string(forType: .string), !pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") {
+                url = trimmed
+            } else {
+                text = pasted
+                url = ""
+            }
+            failure = nil
+        } else if let image = NSImage(pasteboard: board) {
+            load(suggestedName: nil) { try ImportSource.text(fromImage: image) }
+        } else {
+            failure = "В буфере обмена нет ни текста, ни картинки."
+        }
     }
 
     private func pickFile() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let fileURL = panel.url,
-              let content = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
-        text = content
-        url = ""
-        if name.isEmpty { name = fileURL.deletingPathExtension().lastPathComponent }
+        // Several pictures at once: the Amnezia app splits its export over a series of QR codes.
+        panel.allowsMultipleSelection = true
+        panel.message = "Конфиг sing-box (JSON), конфиг AmneziaWG / WireGuard (.conf) или картинка с QR-кодом"
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        load(files: panel.urls)
+    }
+
+    private func load(files: [URL]) {
+        let suggested = files.count == 1 ? files[0].deletingPathExtension().lastPathComponent : nil
+        load(suggestedName: suggested) { try ImportSource.text(fromFiles: files) }
+    }
+
+    /// Reading a QR code takes a moment, so it stays off the main thread.
+    private func load(suggestedName: String?, _ read: @escaping @Sendable () throws -> String) {
+        working = true
+        failure = nil
+        Task { @MainActor in
+            do {
+                text = try await Task.detached(operation: read).value
+                url = ""
+                if name.isEmpty, let suggestedName { name = suggestedName }
+            } catch {
+                failure = error.localizedDescription
+            }
+            working = false
+        }
     }
 
     private func add() {

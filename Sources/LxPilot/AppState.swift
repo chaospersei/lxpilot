@@ -1164,8 +1164,8 @@ final class AppState: ObservableObject {
             source = fetched.text
             info = fetched.info
         }
-        let converted = try ProfileImporter.convert(source, testURL: settings.testURL)
         var title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let converted = try ProfileImporter.convert(source, testURL: settings.testURL, name: title.isEmpty ? nil : title)
         if title.isEmpty { title = info.title ?? "" }
         if title.isEmpty, let cleanURL, let host = URL(string: cleanURL)?.host { title = host }
         if title.isEmpty { title = "Профиль \(profiles.count + 1)" }
